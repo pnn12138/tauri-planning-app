@@ -1,0 +1,15 @@
+# Problems
+
+## Skills implementation gaps
+- skills plan requires `skills/README.md`, `skills/registry.json`, `skills/shared/ipc_contract/ipc_contract.md`, and per-skill `skill.md`/`spec.json`/`tests`, but only `skills/skills_plan.md` exists.
+- review skill directories (`skills/review/quality_gate`, `skills/review/contract_consistency`, `skills/review/change_boundary`) are missing, so the review skills cannot be invoked.
+
+## Review skill operational gaps
+- no routing/dispatch mechanism or registry exists to map a review request to a specific skill; this blocks automatic review execution.
+
+## Contract consistency and code quality gaps
+- frontend invokes `greet` by string with no shared IPC contract or typed envelope; this violates the contract consistency expectations in `skills/skills_plan.md`.
+- backend only exposes the template `greet` command and lacks the MVP IPC set (`select_vault`, `scan_vault`, `read_markdown`, `write_markdown`), so there is no vault lifecycle to review.
+
+## Process/documentation gaps
+- `F_product_process.md` and `E_test_plan.md` are empty, so the current phase and minimum test checks are undefined, blocking a phase-aware review.
