@@ -1,191 +1,38 @@
-# AGENTS.md
+﻿# Repository Guidelines
 
-This repository is a **Tauri desktop application** built as an Obsidian-like Markdown workspace.
+## Project Structure & Module Organization
+- `src/` contains the React + TypeScript frontend (app shell, UI, styles).
+- `src-tauri/` contains the Rust backend and Tauri config (`src-tauri/src/`, `src-tauri/tauri.conf.json`).
+- `public/` holds static assets served by Vite.
+- Planning docs: `A_product_plan.md`, `B_frame_plan.md`, `C_Architecture.md`, `D_code_todo.md`, `F_product_process.md`, `E_test_plan.md`.
 
-- **Frontend**: React + TypeScript (Vite)
-- **Backend**: Rust (Tauri)
-- **Package manager**: pnpm
-- **Build system**: Vite + Cargo
-- **Target platforms**: Windows / macOS / Linux
+## Build, Test, and Development Commands
+- `pnpm dev`: run the Vite dev server for frontend UI work.
+- `pnpm build`: type-check and build the frontend bundle.
+- `pnpm preview`: serve the built frontend locally.
+- `pnpm tauri dev`: run the full Tauri desktop app in dev mode.
+- `pnpm tauri build`: produce a packaged Tauri build.
 
-This file defines **how humans and agents should understand the project state, follow the development process, and make safe changes**.
+## Coding Style & Naming Conventions
+- TypeScript/React: keep components and hooks in `src/`, use `PascalCase` for components and `camelCase` for functions/variables.
+- Rust: follow `rustfmt` defaults and standard Rust naming (`snake_case`).
+- Indentation: 2 spaces for TS/TSX, 4 spaces for Rust where applicable.
+- No formatter or linter is configured yet; keep changes minimal and consistent with nearby code.
 
----
+## Testing Guidelines
+- No automated test framework is configured yet.
+- `E_test_plan.md` is the place to record manual checks once MVP work is complete.
 
-## 1. How to understand this repository
+## Architecture & Safety Rules
+- Frontend never accesses the OS directly; all filesystem operations go through Tauri commands.
+- All file paths from the frontend must be relative to the selected vault root.
+- Enforce vault boundary rules from `C_Architecture.md` and the P0 tasks in `D_code_todo.md`.
 
-This project is intentionally documented-first.
+## Commit & Pull Request Guidelines
+- Commit history uses short, descriptive messages (some in Chinese, some in English); there is no enforced convention.
+- Keep commits scoped and explain intent (what/why).
+- PRs should include a brief summary, testing notes (if any), and screenshots for UI changes.
 
-Before modifying code, always consult the following documents **in order**:
-
-1. **product_plan.md**  
-   - What the product is trying to be  
-   - What is explicitly in-scope / out-of-scope  
-
-2. **product_process.md**  
-   - Current development phase  
-   - What is being built now  
-   - What decisions have already been made and why  
-
-3. **frame_plan.md**  
-   - Technology stack and high-level structure  
-   - Long-term framing and evolution direction  
-
-4. **ARCHITECTURE.md**  
-   - Frontend / backend responsibility boundaries  
-   - IPC contracts and filesystem rules  
-   - Security and correctness constraints  
-
-5. **test_plan.md**  
-   - How correctness is verified  
-   - What must be checked before merging  
-
-6. **code_todo.md**  
-   - Concrete implementation tasks for the current phase  
-
-**AGENTS.md does not replace these files — it tells you how to use them together.**
-
----
-
-## 2. Current project phase (authoritative)
-
-The current phase of this project is defined in **product_process.md**.
-
-Typical phases include:
-- Architecture & skeleton
-- Core workflow MVP
-- Feature expansion
-- Hardening & refinement
-
-Agents and contributors must:
-- Align their changes with the **current phase**
-- Avoid implementing future-phase features prematurely
-- Treat decisions recorded in `product_process.md` as *active constraints*, not suggestions
-
----
-
-## 3. Project structure overview
-
-- `src/` React + TypeScript frontend (App shell, UI, styles)
-- `public/` Static assets served by Vite
-- `src-tauri/` Rust backend and Tauri configuration
-  - `src-tauri/src/` Tauri commands and backend logic
-  - `src-tauri/tauri.conf.json` App configuration
-- Root configs: `package.json`, `pnpm-lock.yaml`, `vite.config.ts`, `tsconfig*.json`
-- Planning docs: `product_plan.md`, `product_process.md`, `frame_plan.md`, `Architecture.md`, `test_plan.md`, `code_todo.md`
-
-## 4. Core architectural rules (non-negotiable)
-
-### 4.1 Frontend / Backend boundary
-- **Frontend (React)** is responsible for:
-  - UI layout and interaction
-  - Markdown rendering
-  - Local UI state management
-
-- **Backend (Rust / Tauri)** is responsible for:
-  - File system access
-  - Workspace (vault) boundary enforcement
-  - Security-sensitive or heavy operations
-
-Frontend must **never** access OS resources directly.
-
----
-
-### 4.2 Workspace (Vault) rule
-- All file operations are scoped to a user-selected workspace (vault)
-- Frontend uses **relative paths only**
-- Backend resolves and validates paths against the vault root
-
-Any attempt to bypass this boundary is considered a **critical architecture violation**.
-
----
-
-## 5. Decision handling and evolution
-
-This project uses **phase-aware decisions** rather than permanent global decisions.
-
-Active decisions are recorded in:
-- **product_process.md** (current, binding)
-- **frame_plan.md** (long-term framing)
-
-Rules:
-- Do not silently reverse existing decisions
-- If a decision must change:
-  1. Update `product_process.md` with rationale
-  2. Explain why the change is needed *at this stage*
-  3. Only then update code
-
-Agents should **propose decision changes before implementing them**.
-
----
-
-## 6. How to make changes safely
-
-### 6.1 Before coding
-- Identify the current phase
-- Confirm the change aligns with `product_plan.md`
-- Locate relevant constraints in `ARCHITECTURE.md`
-
-### 6.2 During coding
-- Prefer minimal, focused changes
-- Avoid refactors unless explicitly required
-- Do not expand IPC surface casually
-
-### 6.3 After coding
-- Update `code_todo.md` if tasks are completed
-- Ensure checks in `test_plan.md` are satisfied
-- Keep documentation consistent with behavior
-
----
-
-## 7. Testing expectations
-
-Testing requirements are defined in `test_plan.md`.
-
-At minimum:
-- Core workflow must work end-to-end
-- No filesystem access outside the vault
-- No regressions in the current phase scope
-
-If behavior changes, tests or manual checks must be updated accordingly.
-
----
-
-## 8. Agent-specific rules
-
-When acting as an automated agent:
-
-- Prefer **analysis and proposal** over direct modification
-- Do not introduce features not listed in `product_process.md`
-- Do not restructure folders unless explicitly instructed
-- Do not upgrade major dependencies silently
-- Ask for confirmation before:
-  - Changing IPC contracts
-  - Relaxing security boundaries
-  - Introducing new system capabilities
-
-If uncertain, default to **read-only reasoning and suggestions**.
-
----
-
-## 9. Explicit non-goals (current state)
-
-This project is **not** currently:
-- A full Obsidian replacement
-- A plugin platform
-- A cloud-synced knowledge base
-- A rich-text editor
-
-These may appear in future phases, but are explicitly out of scope now.
-
----
-
-## 10. Final note
-
-This repository prioritizes:
-- Clear boundaries over quick hacks
-- Documented intent over implicit behavior
-- Phase-driven evolution over feature accumulation
-
-If a change feels “obviously useful” but undocumented,  
-**pause and consult the plans first.**
+## Agent-Specific Instructions
+- This repo is document-driven: read `A_product_plan.md`, `F_product_process.md`, `B_frame_plan.md`, `C_Architecture.md`, and `D_code_todo.md` before code changes.
+- Do not expand IPC surface or relax security boundaries without explicit approval.

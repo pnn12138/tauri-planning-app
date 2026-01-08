@@ -55,6 +55,16 @@ Principle:
 
 ---
 
+## 3.1 Constraints and boundaries (framework-level)
+
+- Backend entrypoint (`src-tauri/src/lib.rs`) remains an application bootstrap and command registry only.
+- Business rules live outside the entrypoint (conceptual separation: command/service/policy layers).
+- Tab is the single source of truth for content instances; switching tabs must replace the content instance (no CSS-only fake switching).
+- Web content is a tab content type, not a separate window privilege; prefer same-window multi-webview over new windows.
+- App shell (top bar) is system-level UI; drag region must not cover interactive controls.
+
+---
+
 ## 4. Workspace (Vault) model
 
 ### 4.1 Definition
@@ -169,12 +179,14 @@ Purpose:
 
 Input:
 - `{ vaultRoot: string }` (optional if stored server-side; prefer backend stores the active vault)
+- `{ path?: string }` (optional relative path to scan a subdirectory and return its children)
 
 Output:
 - `FileNode` tree:
   - `type: "dir" | "file"`
   - `name: string`
   - `path: string` (relative path)
+  - `mtime?: number` (optional, file nodes only)
   - `children?: FileNode[]`
 
 Filtering:

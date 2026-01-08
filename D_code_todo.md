@@ -4,45 +4,147 @@
 
 ---
 
-## P0 - MVP 闭环（必须优先完成）
-1. 后端：实现 `select_vault` 命令，使用系统对话框选择目录并缓存当前 vault（后端为权威，前端镜像）。
-2. 后端：vault 生命周期与持久化约定（默认持久化上次 vault，启动自动恢复；未选择时返回 `NoVaultSelected`）。
-3. 后端：vaultRoot 持久化策略分级（仅内存作为 MVP 备选 / 记住上次 vault 作为 P1），并明确 `NoVaultSelected` 触发条件与恢复流程。
-4. 后端：实现 `scan_vault` 扫描，构建文件树（目录优先、按名称排序、仅 `.md`，隐藏文件默认过滤），并在大目录下提供基础保护（异步执行、超时/数量阈值提示、避免前端长时间空白）。
-5. 后端：实现 `read_markdown`，基于相对路径读取内容，UTF-8 解码失败返回结构化错误。
-6. 后端：实现 `write_markdown`，基于相对路径写入内容，确保路径在 vault 内，原子写入策略明确（同目录临时文件 -> 写入 -> 可选 fsync -> replace/rename）；失败回退策略明确（直接写入或返回 `WriteFailed`，附步骤细节）。
-7. 后端：实现统一错误码（至少包含 `NoVaultSelected`、`PathOutsideVault`、`NotFound`、`PermissionDenied`、`DecodeFailed`、`WriteFailed`）。
-8. 后端：定义 IPC 输入/输出 schema（含 `scan_vault` 返回结构、`read_markdown`/`write_markdown` envelope 与错误结构），作为前后端联调基线。
-9. 后端：路径安全校验流程（join + canonicalize + vault root 前缀校验 + 处理 canonicalize 失败的降级策略）。
-10. 后端：symlink 策略明确定义（默认全拒绝或允许但需 realpath 仍在 vault 内），并给出对应错误码（如 `SymlinkNotAllowed`）。
-11. 前端：应用启动与 Vault 恢复流程（若有持久化 vault，自动加载；否则引导选择）。
-12. 前端：文件树 UI（目录可展开/收起、当前文件高亮、仅显示 `.md`）。
-13. 前端：双栏编辑/预览布局（Editor + Preview 并排，Sidebar 可折叠）。
-14. 前端：集成 CodeMirror 6 作为编辑器，载入文件内容并支持基础编辑。
-15. 前端：实时预览（编辑器内容变化驱动 Markdown 渲染，默认禁用 HTML）。
-16. 前端：保存行为（快捷键/按钮触发 `write_markdown`，成功/失败提示）。
-17. 前端：dirty 状态跟踪与切换文件提示（未保存变更时给予明确提示）。
-18. 前端：在 vault 未初始化时屏蔽读写/扫描入口并展示引导，减少错误分支。
+## Status
+- P0: 顶栏替代原生标题栏、地址栏输入/同步、窗口控制按钮、Webview 权限仍待落地。
+- P1: 待规划（需求拆解后补充）。
+- P2: 部分落地（仅剩少量文档项，见 P2）。
 
----
+## Current baseline（现状基线）
+- Markdown 预览库：`react-markdown` + `remark-gfm` + `rehype-highlight`，安全策略用 `skipHtml` + `urlTransform`。
+- 编辑器：CodeMirror 6（`@uiw/react-codemirror`）。
+- 文件树结构：`FileNode { type: "dir" | "file", name, path, mtime?, children? }`（path 为相对路径）。
+- 前端状态变量（已存在）：`vaultRoot`, `fileTree`, `tabs`, `activeTabId`, `editorByTab`, `sidebarOpen`, `expandedDirs`, `loadingDirs`, `status`, `statusKind`, `warnings`, `isSaving`, `lastActiveFile`。
+- 已有 Home/Markdown/Web Tab 模型，且 Tab 与内容实例绑定。
+- 顶部导航栏已固定在窗口最顶部（`position: fixed` + 内容区 padding-top）。
+- 右上角原生窗口控制按钮（最小化 / 最大化 / 关闭）未补齐。
+- 地址栏目前为展示用 `div`，不可输入/编辑。
+- IPC Envelope（实际结构）：`{ ok: true, data }` / `{ ok: false, error: { code, message, details? } }`（与 frame_plan 约定一致）。
+- 现有 IPC 命令：`select_vault`, `scan_vault(path?: string)`, `read_markdown`, `write_markdown`（见 `src-tauri/src/lib.rs`）。
+- 已集成 Tauri 同窗多 Webview（`Webview` + webview bridge）。
+- Tauri capabilities 未声明 `core:webview:allow-create-webview` 权限（运行时会报错）。
+- `tauri.conf.json` 仍启用 `decorations: true`（原生标题栏未替代）。
 
-## P1 - MVP 完整性与稳定性
-1. 前端：切换文件时避免旧请求覆盖新内容（读写请求竞态处理），并明确“保存中切换文件”的行为（阻止切换/排队/提示）。
-2. 前端：引入 requestId / AbortController 机制，确保仅最新 read 响应落地。
-3. 前端：引入 `isSaving` 状态，保存中禁止切换（按钮/点击置灰 + 提示）。
-4. 前端：保存失败后的 dirty 行为明确（默认保持 `dirty=true`，并提示重试/另存为）。
-5. 前端：读请求乱序的最终显示策略（以最后一次用户选择为准，忽略旧响应）。
-6. 前端：空态与错误态提示（未选 Vault、文件读取失败、保存失败）。
-7. 前端：编辑器与预览性能优化（节流预览渲染、避免大文件卡顿）。
-8. 后端：扫描性能优化（按需加载目录，`scan_vault` 支持传入子目录并返回子节点）。
-9. 后端：`scan_vault` 支持 partial result（遇到 `PermissionDenied` 跳过并返回 `warnings: { path, code }[]`）。
-10. 后端：写入失败的细化错误信息（权限、锁定、路径无效等）。
-11. 前端：键盘快捷键统一（保存、撤销/重做由编辑器默认能力支持）。
+## 写作规范（必须遵守）
+- 每条 P0/P1 必须包含：Goal / Requirement Link / User-visible Behavior / Files & Ownership / Implementation Steps / Edge Cases / IPC Contract / DoD & Tests。
+- 每条任务必须可在 1 个 PR 内完成；超过则拆分。
+- 不允许出现“已落地”但仍列 TODO 的矛盾表述。
 
----
+## P0 - Requirements（必须优先完成）
+### 推荐落地顺序（每步可独立验收）
+1) P0-1 顶栏替代原生标题栏与拖拽区域治理
+2) P0-2 地址栏输入与同步逻辑
+3) P0-3 原生窗口控制按钮
+4) P0-4 Webview 权限与新开 Tab 链路
+
+### P0-1 顶栏替代原生标题栏与拖拽区域治理
+Goal：自定义顶栏完全替代系统标题栏，且交互区域不被拖拽区覆盖。
+Requirement Link：requirement/requirements.md §3.1, §3.4
+User-visible Behavior（验收）：
+- 顶栏处于窗口最上方，系统标题栏被替代或最小化。
+- 顶栏空白区域可拖拽；按钮、Tab、输入框可正常点击/编辑。
+Files & Ownership：
+- 允许：`src-tauri/tauri.conf.json`, `src/App.tsx`, `src/App.css`
+Implementation Steps：
+- Tauri：调整窗口 `decorations` 与标题栏配置（Windows 先行验证）。
+- 顶栏：梳理 `data-tauri-drag-region` 覆盖范围，仅空白区可拖拽。
+- 层级：确保顶栏高于内容区，避免 webview 层覆盖导致点击失效。
+Edge Cases：
+- 小窗口高度下避免双滚动或控件被遮挡。
+- 非 Windows 平台先保持现状或做兼容分支。
+IPC Contract / Data Shape：无变更。
+DoD & Tests：
+- 顶栏可拖拽、按钮/输入框可用，且交互不被拖拽区干扰。
+- 窗口顶部不再出现系统标题栏重复区域。
+
+### P0-2 地址栏输入与同步逻辑
+Goal：地址栏可编辑，并与当前 Tab 的 URL/路径状态一致。
+Requirement Link：requirement/requirements.md §3.3
+User-visible Behavior（验收）：
+- 地址栏可点击输入/复制粘贴，Enter 触发导航或搜索。
+- 切换 Tab 时地址栏展示对应 URL/路径。
+- Loading 状态与 Webview 实际加载一致，错误可见。
+Files & Ownership：
+- 允许：`src/App.tsx`, `src/App.css`
+Implementation Steps：
+- 将地址栏替换为 `input`，维护 focus/编辑态与显示态（必要时分离）。
+- Web Tab：Enter 触发导航（复用当前 webview），非 URL 走搜索模板。
+- Markdown/Home：Enter 时新开 Web Tab 或提示（明确策略）。
+- 同步：使用 webview-state 回传更新地址栏与 loading 状态。
+Edge Cases：
+- 非法 URL 或空输入时的行为（保持输入或提示）。
+- 切换 Tab 时避免覆盖用户正在编辑的输入值。
+IPC Contract / Data Shape：无变更。
+DoD & Tests：
+- 地址栏可输入/粘贴，Enter 导航生效。
+- Tab 切换与页面跳转后地址栏正确更新。
+
+### P0-3 原生窗口控制按钮
+Goal：补回最小化/最大化/关闭按钮并保持系统行为一致。
+Requirement Link：requirement/requirements.md §3.1
+User-visible Behavior（验收）：
+- 导航栏右侧显示最小化、最大化/还原、关闭按钮。
+- 按钮行为与系统窗口一致。
+Files & Ownership：
+- 允许：`src/App.tsx`, `src/App.css`
+Implementation Steps：
+- 使用 `@tauri-apps/api/window` 调用 `minimize`/`toggleMaximize`/`close`。
+- 状态：根据 `isMaximized` 更新最大化/还原按钮的显示。
+- 样式：放置在导航栏最右侧，视觉不抢焦点。
+Edge Cases：
+- macOS/Windows 差异暂仅预留，不硬编码平台样式。
+IPC Contract / Data Shape：无变更。
+DoD & Tests：
+- 三个按钮在 Tauri 运行时可用并触发系统行为。
+
+### P0-4 Webview 权限与新开 Tab 链路
+Goal：消除 `webview.create_webview not allowed` 并确保新开 Tab 可用。
+Requirement Link：requirement/requirements.md §3.5
+User-visible Behavior（验收）：
+- 新开 Web Tab 不再报权限错误。
+- 预览区外链可在应用内新开 Tab，原 Tab 状态保持。
+Files & Ownership：
+- 允许：`src-tauri/capabilities/default.json`, `src/App.tsx`
+- 不允许：新增业务型 IPC 命令
+Implementation Steps：
+- Capabilities：声明 `core:webview:allow-create-webview` 权限。
+- UI：对 webview 创建失败给出可见提示（复用 status 区）。
+- 链接策略：外链默认新开 Tab，可预留“系统浏览器打开”开关入口。
+Edge Cases：
+- 非 Tauri 运行时显示可理解的降级提示。
+IPC Contract / Data Shape：无变更。
+DoD & Tests：
+- 不再出现权限报错；新开 Tab 正常加载页面。
+
+--- 
 
 ## P2 - 文档与验证（支撑 MVP 交付）
-1. 更新 `test_plan.md`：补充编辑/保存/dirty 提示的验证步骤。
-2. 更新 `product_process.md`：明确当前阶段与已决策范围。
-3. 为 IPC 命令补充使用说明（输入/输出/错误码示例）。
-4. 手工验收清单：按 `A_product_plan.md` 的 6 条标准逐项验证。
+### P2-2 更新 F_product_process.md
+Goal：明确当前阶段与已决策范围，保持文档一致。
+Requirement Link：N/A
+User-visible Behavior（验收）：
+- 文档可读，阶段信息一致。
+Files & Ownership：
+- 允许：`F_product_process.md`
+Implementation Steps：
+- 文档：更新阶段、模块实现与验收状态。
+Edge Cases：N/A
+IPC Contract / Data Shape：无变更。
+DoD & Tests：
+- 文档内容与代码现状一致。
+
+### P2-3 IPC 使用说明补充
+Goal：为 IPC 命令提供输入/输出/错误码示例。
+Requirement Link：N/A
+User-visible Behavior（验收）：
+- 开发者可按文档正确调用 IPC。
+Files & Ownership：
+- 允许：`C_Architecture.md` 或新增 `IPC.md`
+- 不允许：扩展 IPC 面向功能
+Implementation Steps：
+- 文档：为 `select_vault`/`scan_vault`/`read_markdown`/`write_markdown` 增加示例。
+Edge Cases：
+- 错误码示例包含 `PathOutsideVault`/`PermissionDenied`。
+IPC Contract / Data Shape：
+- 与当前 Envelope 保持一致。
+DoD & Tests：
+- 文档示例可直接用于前后端联调。

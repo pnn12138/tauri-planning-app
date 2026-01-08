@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+fig/
+requirement/
+test/
 
 # Editor directories and files
 .vscode/*
