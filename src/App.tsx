@@ -1376,7 +1376,7 @@ function App() {
 
   const createFromMenu = useCallback(
     async (kind: "file" | "dir") => {
-      if (!treeContextMenu || treeContextMenu.type !== "blank") return;
+      if (!treeContextMenu) return;
       if (isRenaming || isSaving || isDeleting || isCreating) return;
       if (!isTauriRuntime) {
         setStatusKind("error");
@@ -1387,7 +1387,7 @@ function App() {
       setStatus(null);
       setIsCreating(true);
       try {
-        const parentPath = treeContextMenu.parentPath;
+        const parentPath = treeContextMenu.type === "blank" ? treeContextMenu.parentPath : treeContextMenu.path;
         const result = await invokeApi<CreateEntryResponse>("create_entry", {
           input: { parentPath, kind },
         });
@@ -1400,6 +1400,10 @@ function App() {
         }
         setTreeContextMenu(null);
         await runScan({ silent: true, bypassBusy: true });
+        // 强制重新加载父目录的子节点，确保新创建的内容显示出来
+        if (parentPath) {
+          await loadDirChildren(parentPath);
+        }
         setStatusKind("info");
         setStatus(kind === "dir" ? `已新建文件夹：${result.path}` : `已新建文件：${result.path}`);
       } catch (error) {
@@ -1409,7 +1413,7 @@ function App() {
         setIsCreating(false);
       }
     },
-    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu]
+    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu, loadDirChildren]
   );
 
   useEffect(() => {
@@ -2340,7 +2344,7 @@ function App() {
           data-tauri-drag-region="false"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          {treeContextMenu.type === "blank" ? (
+          {(treeContextMenu.type === "blank" || treeContextMenu.type === "dir") && (
             <>
               <button
                 type="button"
@@ -2361,7 +2365,8 @@ function App() {
                 新建文件夹
               </button>
             </>
-          ) : (
+          )}
+          {treeContextMenu.type === "file" || treeContextMenu.type === "dir" ? (
             <>
               <button
                 type="button"
@@ -2382,7 +2387,7 @@ function App() {
                 删除
               </button>
             </>
-          )}
+          ) : null}
         </div>
       )}
 

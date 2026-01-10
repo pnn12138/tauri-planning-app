@@ -25,3 +25,6 @@ test/
 *.njsproj
 *.sln
 *.sw?
+
+# Documentation files
+pr.md
