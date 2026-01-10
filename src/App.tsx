@@ -1279,6 +1279,33 @@ function App() {
     }
 
     const name = treeContextMenu.name;
+    const targetPath = treeContextMenu.path;
+    const targetIsDir = treeContextMenu.type === "dir";
+    const isAffected = (filePath: string) =>
+      targetIsDir ? isPathInDir(filePath, targetPath) : filePath === targetPath;
+
+    const affectedMarkdownTabs = tabs.filter(
+      (tab): tab is MarkdownTab =>
+        tab.type === "markdown" && isAffected(tab.filePath)
+    );
+    const dirtyTabs = affectedMarkdownTabs.filter(
+      (tab) => editorByTab[tab.id]?.dirty
+    );
+    if (dirtyTabs.length > 0) {
+      const dirtyLinesMax = 8;
+      const dirtyLines = dirtyTabs
+        .slice(0, dirtyLinesMax)
+        .map((tab) => `- ${tab.filePath}`)
+        .join("\n");
+      const dirtyMore =
+        dirtyTabs.length > dirtyLinesMax
+          ? `\n- ... (+${dirtyTabs.length - dirtyLinesMax})`
+          : "";
+      const proceed = window.confirm(
+        `Warning: the following open files have unsaved changes. Deleting will discard them:\n${dirtyLines}${dirtyMore}\n\nContinue?`
+      );
+      if (!proceed) return;
+    }
     const confirmed = window.confirm(
       treeContextMenu.type === "dir"
         ? `确认删除文件夹“${name}”及其内容吗？`
@@ -1345,7 +1372,7 @@ function App() {
     } finally {
       setIsDeleting(false);
     }
-  }, [activeTabId, isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu]);
+  }, [activeTabId, editorByTab, isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, tabs, treeContextMenu]);
 
   const createFromMenu = useCallback(
     async (kind: "file" | "dir") => {
