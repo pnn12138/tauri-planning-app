@@ -371,6 +371,48 @@ button.ghost.is-danger {
   background: #eef3ff;
 }
 
+.tree-item.is-renaming {
+  background: #eef3ff;
+}
+
+.tree-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #ccd5df;
+  background: #ffffff;
+  font-size: 14px;
+  color: inherit;
+  outline: none;
+}
+
+.tree-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+}
+
+.tree-context-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.tree-context-menu-item:hover {
+  background: #eef3ff;
+  box-shadow: none;
+  border-color: transparent;
+}
+
 .tree-dir {
   font-weight: 600;
   color: #314258;

@@ -114,6 +114,22 @@ struct WriteMarkdownInput {
     content: String,
 }
 
+#[derive(Deserialize)]
+struct RenameMarkdownInput {
+    path: String,
+    #[serde(rename = "newName")]
+    new_name: String,
+}
+
+#[derive(Serialize)]
+struct RenameMarkdownResponse {
+    #[serde(rename = "oldPath")]
+    old_path: String,
+    #[serde(rename = "newPath")]
+    new_path: String,
+    mtime: Option<u64>,
+}
+
 #[tauri::command]
 fn select_vault(state: State<VaultState>) -> ApiResponse<SelectVaultResponse> {
     let folder = rfd::FileDialog::new().pick_folder();
@@ -229,6 +245,34 @@ async fn write_markdown(
         Err(err) => Ok(ApiResponse::err(
             "WriteFailed",
             "Write task failed",
+            Some(serde_json::json!({ "error": err.to_string() })),
+        )),
+    }
+}
+
+#[tauri::command]
+async fn rename_markdown(
+    state: State<'_, VaultState>,
+    input: RenameMarkdownInput,
+) -> Result<ApiResponse<RenameMarkdownResponse>, ApiError> {
+    let vault_root = match current_vault_root(&state) {
+        Ok(path) => path,
+        Err(err) => return Ok(ApiResponse::err(&err.code, &err.message, err.details)),
+    };
+
+    let rel_path = PathBuf::from(input.path.trim());
+    let new_name = input.new_name;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        rename_markdown_impl(&vault_root, &rel_path, &new_name)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(response)) => Ok(ApiResponse::ok(response)),
+        Ok(Err(err)) => Ok(ApiResponse::err(&err.code, &err.message, err.details)),
+        Err(err) => Ok(ApiResponse::err(
+            "WriteFailed",
+            "Rename task failed",
             Some(serde_json::json!({ "error": err.to_string() })),
         )),
     }
@@ -510,6 +554,113 @@ fn write_markdown_impl(
         path: rel_path_string(rel_path),
         mtime,
     })
+}
+
+fn rename_markdown_impl(
+    vault_root: &Path,
+    rel_path: &Path,
+    new_name: &str,
+) -> Result<RenameMarkdownResponse, ApiError> {
+    let rel_path_text = rel_path_string(rel_path);
+    if rel_path_text.trim().is_empty() {
+        return Err(ApiError {
+            code: "NotFound".to_string(),
+            message: "Path does not exist".to_string(),
+            details: Some(serde_json::json!({ "path": rel_path_text })),
+        });
+    }
+
+    let lower = rel_path_text.to_ascii_lowercase();
+    if !lower.ends_with(".md") {
+        return Err(ApiError {
+            code: "NotFound".to_string(),
+            message: "Only markdown files can be renamed".to_string(),
+            details: Some(serde_json::json!({ "path": rel_path_text })),
+        });
+    }
+
+    let source_abs = resolve_existing_path(vault_root, rel_path)?;
+    let metadata =
+        fs::metadata(&source_abs).map_err(|err| map_io_error("Unknown", "Metadata failed", err))?;
+    if !metadata.is_file() {
+        return Err(ApiError {
+            code: "NotFound".to_string(),
+            message: "Path is not a file".to_string(),
+            details: Some(serde_json::json!({ "path": rel_path_text })),
+        });
+    }
+
+    let file_name = sanitize_markdown_file_name(new_name)?;
+    let existing_name = source_abs
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or_default();
+    if existing_name == file_name {
+        let mtime = file_mtime(&source_abs);
+        return Ok(RenameMarkdownResponse {
+            old_path: rel_path_text.clone(),
+            new_path: rel_path_text,
+            mtime,
+        });
+    }
+
+    let parent_rel = rel_path.parent().unwrap_or_else(|| Path::new(""));
+    let parent_abs = resolve_existing_dir(vault_root, parent_rel)?;
+    let target_abs = parent_abs.join(&file_name);
+    if target_abs.exists() {
+        return Err(ApiError {
+            code: "WriteFailed".to_string(),
+            message: "Target file already exists".to_string(),
+            details: Some(serde_json::json!({ "path": canonical_to_string(&target_abs) })),
+        });
+    }
+
+    fs::rename(&source_abs, &target_abs)
+        .map_err(|err| map_write_error("Failed to rename file", err))?;
+    let mtime = file_mtime(&target_abs);
+
+    let mut new_rel = parent_rel.to_path_buf();
+    new_rel.push(file_name);
+
+    Ok(RenameMarkdownResponse {
+        old_path: rel_path_text,
+        new_path: rel_path_string(&new_rel),
+        mtime,
+    })
+}
+
+fn sanitize_markdown_file_name(input: &str) -> Result<String, ApiError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return Err(ApiError {
+            code: "WriteFailed".to_string(),
+            message: "Invalid file name".to_string(),
+            details: None,
+        });
+    }
+
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(ApiError {
+            code: "WriteFailed".to_string(),
+            message: "Invalid file name".to_string(),
+            details: Some(serde_json::json!({ "name": trimmed })),
+        });
+    }
+
+    let mut name = trimmed.to_string();
+    let lower = name.to_ascii_lowercase();
+    if !lower.ends_with(".md") {
+        if name.contains('.') {
+            return Err(ApiError {
+                code: "WriteFailed".to_string(),
+                message: "Only .md files can be renamed".to_string(),
+                details: Some(serde_json::json!({ "name": name })),
+            });
+        }
+        name.push_str(".md");
+    }
+
+    Ok(name)
 }
 
 fn resolve_existing_path(vault_root: &Path, rel_path: &Path) -> Result<PathBuf, ApiError> {
@@ -799,7 +950,8 @@ pub fn run() {
             select_vault,
             scan_vault,
             read_markdown,
-            write_markdown
+            write_markdown,
+            rename_markdown
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
