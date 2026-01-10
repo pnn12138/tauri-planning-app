@@ -23,3 +23,5 @@ TypeScript 构建。支持浏览 Vault 目录、以 Tab 方式打开 Markdown �
 3. 下载功能与设置模块设计。
 4. MarkItDown 功能与插件设计（核心）。
 5. 接入 AI（框架选型、API、可本地运行等）。
+
+## Test
