@@ -825,7 +825,7 @@ function App() {
   );
 
   const runScan = useCallback(
-    async (options?: { silent?: boolean; resetExpanded?: boolean }) => {
+    async (options?: { silent?: boolean; resetExpanded?: boolean; bypassBusy?: boolean }) => {
       if (isScanningRef.current) {
         if (!options?.silent) {
           setStatusKind("info");
@@ -833,28 +833,28 @@ function App() {
         }
         return;
       }
-      if (isSavingRef.current) {
+      if (isSavingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Save in progress. Please wait.");
         }
         return;
       }
-      if (isRenamingRef.current) {
+      if (isRenamingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Rename in progress. Please wait.");
         }
         return;
       }
-      if (isDeletingRef.current) {
+      if (isDeletingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Delete in progress. Please wait.");
         }
         return;
       }
-      if (isCreatingRef.current) {
+      if (isCreatingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Create in progress. Please wait.");
@@ -1178,7 +1178,7 @@ function App() {
             }
             return next;
           });
-          await runScan({ silent: true });
+          await runScan({ silent: true, bypassBusy: true });
         }
 
         setStatusKind("info");
@@ -1261,7 +1261,7 @@ function App() {
 
       setTreeContextMenu(null);
       setRenameDraft(null);
-      await runScan({ silent: true });
+      await runScan({ silent: true, bypassBusy: true });
       setStatusKind("info");
       setStatus(`已删除：${deletedPath}`);
     } catch (error) {
@@ -1297,7 +1297,7 @@ function App() {
           });
         }
         setTreeContextMenu(null);
-        await runScan({ silent: true });
+        await runScan({ silent: true, bypassBusy: true });
         setStatusKind("info");
         setStatus(kind === "dir" ? `已新建文件夹：${result.path}` : `已新建文件：${result.path}`);
       } catch (error) {
