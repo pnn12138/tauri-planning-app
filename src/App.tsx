@@ -62,14 +62,22 @@ type RenameMarkdownResponse = {
   mtime?: number | null;
 };
 
-type TreeContextMenuState = {
-  x: number;
-  y: number;
+type DeleteEntryResponse = {
   path: string;
-  name: string;
 };
 
+type CreateEntryResponse = {
+  path: string;
+  kind: "file" | "dir";
+};
+
+type TreeContextMenuState =
+  | { x: number; y: number; type: "file"; path: string; name: string }
+  | { x: number; y: number; type: "dir"; path: string; name: string }
+  | { x: number; y: number; type: "blank"; parentPath: string };
+
 type RenameDraftState = {
+  kind: "file" | "dir";
   path: string;
   value: string;
 };
@@ -166,6 +174,37 @@ function getTabTitleFromUrl(url: string) {
 function getFileTitle(path: string) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
+}
+
+function getParentDir(path: string | null) {
+  if (!path) return "";
+  const normalized = path.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 1) return "";
+  return parts.slice(0, -1).join("/");
+}
+
+function isPathInDir(path: string, dir: string) {
+  if (!dir) return true;
+  return path === dir || path.startsWith(`${dir}/`);
+}
+
+function replacePathPrefix(path: string, oldPrefix: string, newPrefix: string) {
+  if (path === oldPrefix) return newPrefix;
+  if (!oldPrefix) return path;
+  if (path.startsWith(`${oldPrefix}/`)) {
+    return `${newPrefix}${path.slice(oldPrefix.length)}`;
+  }
+  return path;
+}
+
+function addExpandedDirChain(set: Set<string>, dirPath: string) {
+  const parts = dirPath.split("/").filter(Boolean);
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    set.add(current);
+  }
 }
 
 function replaceBasename(path: string, fileName: string) {
@@ -301,6 +340,8 @@ function App() {
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [addressInput, setAddressInput] = useState("Home");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
@@ -316,6 +357,8 @@ function App() {
   const mainWindowRef = useRef<ReturnType<typeof getCurrentWindow> | null>(null);
   const isSavingRef = useRef(false);
   const isRenamingRef = useRef(false);
+  const isDeletingRef = useRef(false);
+  const isCreatingRef = useRef(false);
   const isScanningRef = useRef(false);
 
   const handleTopBarMouseDown = useCallback(
@@ -621,7 +664,7 @@ function App() {
 
   const openMarkdownTab = useCallback(
     async (path: string, activate = true) => {
-      if (isSaving || isRenaming) {
+      if (isSaving || isRenaming || isDeleting || isCreating) {
         setStatusKind("info");
         setStatus("File operation in progress. Please wait.");
         return;
@@ -695,7 +738,7 @@ function App() {
         setStatus(formatError(error));
       }
     },
-    [activeMarkdownTab, editorByTab, isRenaming, isSaving, tabs]
+    [activeMarkdownTab, editorByTab, isCreating, isDeleting, isRenaming, isSaving, tabs]
   );
   const handleTabClick = useCallback((tabId: string) => {
     setActiveTabId(tabId);
@@ -782,7 +825,7 @@ function App() {
   );
 
   const runScan = useCallback(
-    async (options?: { silent?: boolean; resetExpanded?: boolean }) => {
+    async (options?: { silent?: boolean; resetExpanded?: boolean; bypassBusy?: boolean }) => {
       if (isScanningRef.current) {
         if (!options?.silent) {
           setStatusKind("info");
@@ -790,17 +833,31 @@ function App() {
         }
         return;
       }
-      if (isSavingRef.current) {
+      if (isSavingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Save in progress. Please wait.");
         }
         return;
       }
-      if (isRenamingRef.current) {
+      if (isRenamingRef.current && !options?.bypassBusy) {
         if (!options?.silent) {
           setStatusKind("info");
           setStatus("Rename in progress. Please wait.");
+        }
+        return;
+      }
+      if (isDeletingRef.current && !options?.bypassBusy) {
+        if (!options?.silent) {
+          setStatusKind("info");
+          setStatus("Delete in progress. Please wait.");
+        }
+        return;
+      }
+      if (isCreatingRef.current && !options?.bypassBusy) {
+        if (!options?.silent) {
+          setStatusKind("info");
+          setStatus("Create in progress. Please wait.");
         }
         return;
       }
@@ -958,6 +1015,14 @@ function App() {
   }, [isRenaming]);
 
   useEffect(() => {
+    isDeletingRef.current = isDeleting;
+  }, [isDeleting]);
+
+  useEffect(() => {
+    isCreatingRef.current = isCreating;
+  }, [isCreating]);
+
+  useEffect(() => {
     const onMouseDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (target && treeContextMenuRef.current?.contains(target)) return;
@@ -987,10 +1052,263 @@ function App() {
   }, [renameDraft]);
 
   const beginRenameFromMenu = useCallback(() => {
-    if (!treeContextMenu) return;
-    setRenameDraft({ path: treeContextMenu.path, value: treeContextMenu.name });
+    if (!treeContextMenu || treeContextMenu.type === "blank") return;
+    setRenameDraft({
+      kind: treeContextMenu.type,
+      path: treeContextMenu.path,
+      value: treeContextMenu.name,
+    });
     setTreeContextMenu(null);
   }, [treeContextMenu]);
+
+  const submitRenameDraft = useCallback(
+    async (draft: RenameDraftState) => {
+      if (isRenaming || isSaving || isDeleting || isCreating) return;
+      if (!isTauriRuntime) {
+        setStatusKind("error");
+        setStatus("重命名需要在 Tauri 运行时中使用。");
+        return;
+      }
+
+      const raw = draft.value.trim();
+      if (!raw || raw === "." || raw === "..") {
+        setStatusKind("error");
+        setStatus(draft.kind === "dir" ? "无效的文件夹名称。" : "无效的文件名。");
+        return;
+      }
+      if (raw.includes("/") || raw.includes("\\")) {
+        setStatusKind("error");
+        setStatus(draft.kind === "dir" ? "无效的文件夹名称。" : "无效的文件名。");
+        return;
+      }
+
+      let finalName = raw;
+      if (draft.kind === "file") {
+        if (!finalName.toLowerCase().endsWith(".md")) {
+          if (finalName.includes(".")) {
+            setStatusKind("error");
+            setStatus("只能重命名 .md 文件。");
+            return;
+          }
+          finalName = `${finalName}.md`;
+        }
+        const newPath = replaceBasename(draft.path, finalName);
+        if (newPath === draft.path) {
+          setRenameDraft(null);
+          return;
+        }
+      }
+
+      setStatus(null);
+      setIsRenaming(true);
+      try {
+        const result = await invokeApi<RenameMarkdownResponse>("rename_markdown", {
+          input: { path: draft.path, newName: finalName },
+        });
+
+        if (draft.kind === "file") {
+          let affectedTabIds: string[] = [];
+          setTabs((prev) => {
+            affectedTabIds = prev
+              .filter(
+                (tab): tab is MarkdownTab =>
+                  tab.type === "markdown" && tab.filePath === result.oldPath
+              )
+              .map((tab) => tab.id);
+            return prev.map((tab) => {
+              if (tab.type !== "markdown") return tab;
+              if (tab.filePath !== result.oldPath) return tab;
+              return {
+                ...tab,
+                filePath: result.newPath,
+                title: getFileTitle(result.newPath),
+              };
+            });
+          });
+
+          if (affectedTabIds.length > 0) {
+            setEditorByTab((prev) => {
+              const next = { ...prev };
+              for (const tabId of affectedTabIds) {
+                const current = next[tabId];
+                if (!current) continue;
+                next[tabId] = {
+                  ...current,
+                  diskMtime:
+                    typeof result.mtime === "number" ? result.mtime : current.diskMtime,
+                };
+              }
+              return next;
+            });
+          }
+
+          setLastActiveFile((prev) => (prev === result.oldPath ? result.newPath : prev));
+          setFileTree((prev) => {
+            if (!prev) return prev;
+            return renameNodeInTree(
+              prev,
+              result.oldPath,
+              result.newPath,
+              getFileTitle(result.newPath)
+            );
+          });
+        } else {
+          const oldDir = result.oldPath;
+          const newDir = result.newPath;
+          setTabs((prev) =>
+            prev.map((tab) => {
+              if (tab.type !== "markdown") return tab;
+              if (!isPathInDir(tab.filePath, oldDir)) return tab;
+              const nextPath = replacePathPrefix(tab.filePath, oldDir, newDir);
+              return {
+                ...tab,
+                filePath: nextPath,
+                title: getFileTitle(nextPath),
+              };
+            })
+          );
+
+          setLastActiveFile((prev) =>
+            prev && isPathInDir(prev, oldDir) ? replacePathPrefix(prev, oldDir, newDir) : prev
+          );
+          setExpandedDirs((prev) => {
+            const next = new Set<string>();
+            for (const dir of prev) {
+              next.add(replacePathPrefix(dir, oldDir, newDir));
+            }
+            return next;
+          });
+          await runScan({ silent: true, bypassBusy: true });
+        }
+
+        setStatusKind("info");
+        setStatus(`已重命名：${result.oldPath} -> ${result.newPath}`);
+        setRenameDraft(null);
+      } catch (error) {
+        setStatusKind("error");
+        setStatus(formatError(error));
+      } finally {
+        setIsRenaming(false);
+      }
+    },
+    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan]
+  );
+
+  const deleteFromMenu = useCallback(async () => {
+    if (!treeContextMenu || treeContextMenu.type === "blank") return;
+    if (isRenaming || isSaving || isDeleting || isCreating) return;
+    if (!isTauriRuntime) {
+      setStatusKind("error");
+      setStatus("删除需要在 Tauri 运行时中使用。");
+      return;
+    }
+
+    const name = treeContextMenu.name;
+    const confirmed = window.confirm(
+      treeContextMenu.type === "dir"
+        ? `确认删除文件夹“${name}”及其内容吗？`
+        : `确认删除文件“${name}”吗？`
+    );
+    if (!confirmed) return;
+
+    setStatus(null);
+    setIsDeleting(true);
+    try {
+      const result = await invokeApi<DeleteEntryResponse>("delete_entry", {
+        input: { path: treeContextMenu.path },
+      });
+
+      const deletedPath = result.path;
+      const deletedIsDir = treeContextMenu.type === "dir";
+      let removedTabIds: string[] = [];
+      setTabs((prev) => {
+        const isAffected = (filePath: string) =>
+          deletedIsDir ? isPathInDir(filePath, deletedPath) : filePath === deletedPath;
+
+        removedTabIds = prev
+          .filter(
+            (tab): tab is MarkdownTab =>
+              tab.type === "markdown" && isAffected(tab.filePath)
+          )
+          .map((tab) => tab.id);
+
+        const next = prev.filter((tab) => {
+          if (tab.type !== "markdown") return true;
+          return !isAffected(tab.filePath);
+        });
+
+        if (removedTabIds.includes(activeTabId)) {
+          const currentIndex = prev.findIndex((tab) => tab.id === activeTabId);
+          const nextTab = next[currentIndex - 1] ?? next[currentIndex] ?? null;
+          setActiveTabId(nextTab ? nextTab.id : HOME_TAB_ID);
+        }
+        return next;
+      });
+      if (removedTabIds.length > 0) {
+        setEditorByTab((prev) => {
+          const next = { ...prev };
+          for (const tabId of removedTabIds) {
+            delete next[tabId];
+          }
+          return next;
+        });
+      }
+
+      setLastActiveFile((prev) => {
+        if (!prev) return prev;
+        return deletedIsDir ? (isPathInDir(prev, deletedPath) ? null : prev) : prev === deletedPath ? null : prev;
+      });
+
+      setTreeContextMenu(null);
+      setRenameDraft(null);
+      await runScan({ silent: true, bypassBusy: true });
+      setStatusKind("info");
+      setStatus(`已删除：${deletedPath}`);
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(formatError(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [activeTabId, isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu]);
+
+  const createFromMenu = useCallback(
+    async (kind: "file" | "dir") => {
+      if (!treeContextMenu || treeContextMenu.type !== "blank") return;
+      if (isRenaming || isSaving || isDeleting || isCreating) return;
+      if (!isTauriRuntime) {
+        setStatusKind("error");
+        setStatus("新建需要在 Tauri 运行时中使用。");
+        return;
+      }
+
+      setStatus(null);
+      setIsCreating(true);
+      try {
+        const parentPath = treeContextMenu.parentPath;
+        const result = await invokeApi<CreateEntryResponse>("create_entry", {
+          input: { parentPath, kind },
+        });
+        if (parentPath) {
+          setExpandedDirs((prev) => {
+            const next = new Set(prev);
+            addExpandedDirChain(next, parentPath);
+            return next;
+          });
+        }
+        setTreeContextMenu(null);
+        await runScan({ silent: true, bypassBusy: true });
+        setStatusKind("info");
+        setStatus(kind === "dir" ? `已新建文件夹：${result.path}` : `已新建文件：${result.path}`);
+      } catch (error) {
+        setStatusKind("error");
+        setStatus(formatError(error));
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu]
+  );
 
   useEffect(() => {
     if (!isTauriRuntime) return;
@@ -1236,26 +1554,80 @@ function App() {
         const isOpen = expandedDirs.has(node.path);
         const hasChildren = node.children !== undefined;
         const isLoading = loadingDirs.has(node.path);
+        const isRenamingThisDir =
+          renameDraft?.kind === "dir" && renameDraft.path === node.path;
         return (
           <div key={node.path} className="tree-node">
-            <button
-              type="button"
-              className="tree-item tree-dir"
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
-              onClick={() => toggleDir(node.path, isOpen, hasChildren)}
-              disabled={isSaving || isRenaming}
-              data-tauri-drag-region="false"
-            >
-              <span className="tree-icon">{isOpen ? "v" : ">"}</span>
-              {node.name}
-              {isLoading ? " ..." : ""}
-            </button>
+            {isRenamingThisDir ? (
+              <div
+                className="tree-item tree-dir is-renaming"
+                style={{ paddingLeft: `${depth * 16 + 8}px` }}
+                data-tauri-drag-region="false"
+              >
+                <span className="tree-icon">{isOpen ? "v" : ">"}</span>
+                <input
+                  ref={renameInputRef}
+                  className="tree-rename-input"
+                  value={renameDraft.value}
+                  onChange={(event) =>
+                    setRenameDraft((prev) =>
+                      prev && prev.path === node.path
+                        ? { ...prev, value: event.target.value }
+                        : prev
+                    )
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setRenameDraft(null);
+                      return;
+                    }
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    if (!renameDraft) return;
+                    void submitRenameDraft(renameDraft);
+                  }}
+                  onBlur={() => setRenameDraft(null)}
+                  disabled={isSaving || isRenaming || isDeleting || isCreating}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="tree-item tree-dir"
+                style={{ paddingLeft: `${depth * 16 + 8}px` }}
+                onClick={() => toggleDir(node.path, isOpen, hasChildren)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
+                  const menuWidth = 200;
+                  const menuHeight = 96;
+                  const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
+                  const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
+                  setTreeContextMenu({
+                    type: "dir",
+                    x,
+                    y,
+                    path: node.path,
+                    name: node.name,
+                  });
+                }}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                <span className="tree-icon">{isOpen ? "v" : ">"}</span>
+                {node.name}
+                {isLoading ? " ..." : ""}
+              </button>
+            )}
             {isOpen && node.children && renderTree(node.children, depth + 1)}
           </div>
         );
       }
-      const isRenamingThis = renameDraft?.path === node.path;
-      if (isRenamingThis) {
+      const isRenamingThisFile =
+        renameDraft?.kind === "file" && renameDraft.path === node.path;
+      if (isRenamingThisFile) {
         const isActive = highlightPath === node.path;
         return (
           <div key={node.path} className="tree-node">
@@ -1283,109 +1655,11 @@ function App() {
                   }
                   if (event.key !== "Enter") return;
                   event.preventDefault();
-                  void (async () => {
-                    if (!renameDraft) return;
-                    if (isRenaming || isSaving) return;
-                    if (!isTauriRuntime) {
-                      setStatusKind("error");
-                      setStatus("Rename requires the Tauri runtime.");
-                      return;
-                    }
-                    const raw = renameDraft.value.trim();
-                    if (!raw || raw === "." || raw === "..") {
-                      setStatusKind("error");
-                      setStatus("Invalid file name.");
-                      return;
-                    }
-                    if (raw.includes("/") || raw.includes("\\")) {
-                      setStatusKind("error");
-                      setStatus("Invalid file name.");
-                      return;
-                    }
-                    let finalName = raw;
-                    if (!finalName.toLowerCase().endsWith(".md")) {
-                      if (finalName.includes(".")) {
-                        setStatusKind("error");
-                        setStatus("Only .md files can be renamed.");
-                        return;
-                      }
-                      finalName = `${finalName}.md`;
-                    }
-                    const newPath = replaceBasename(renameDraft.path, finalName);
-                    if (newPath === renameDraft.path) {
-                      setRenameDraft(null);
-                      return;
-                    }
-
-                    setStatus(null);
-                    setIsRenaming(true);
-                    try {
-                      const result = await invokeApi<RenameMarkdownResponse>(
-                        "rename_markdown",
-                        { input: { path: renameDraft.path, newName: finalName } }
-                      );
-
-                      setTabs((prev) =>
-                        prev.map((tab) => {
-                          if (tab.type !== "markdown") return tab;
-                          if (tab.filePath !== result.oldPath) return tab;
-                          return {
-                            ...tab,
-                            filePath: result.newPath,
-                            title: getFileTitle(result.newPath),
-                          };
-                        })
-                      );
-                      const affectedTabIds = tabs
-                        .filter(
-                          (tab): tab is MarkdownTab =>
-                            tab.type === "markdown" && tab.filePath === result.oldPath
-                        )
-                        .map((tab) => tab.id);
-                      if (affectedTabIds.length > 0) {
-                        setEditorByTab((prev) => {
-                          const next = { ...prev };
-                          for (const tabId of affectedTabIds) {
-                            const current = next[tabId];
-                            if (!current) continue;
-                            next[tabId] = {
-                              ...current,
-                              diskMtime:
-                                typeof result.mtime === "number"
-                                  ? result.mtime
-                                  : current.diskMtime,
-                            };
-                          }
-                          return next;
-                        });
-                      }
-
-                      setLastActiveFile((prev) =>
-                        prev === result.oldPath ? result.newPath : prev
-                      );
-                      setFileTree((prev) => {
-                        if (!prev) return prev;
-                        return renameNodeInTree(
-                          prev,
-                          result.oldPath,
-                          result.newPath,
-                          getFileTitle(result.newPath)
-                        );
-                      });
-
-                      setStatusKind("info");
-                      setStatus(`Renamed ${result.oldPath} -> ${result.newPath}`);
-                      setRenameDraft(null);
-                    } catch (error) {
-                      setStatusKind("error");
-                      setStatus(formatError(error));
-                    } finally {
-                      setIsRenaming(false);
-                    }
-                  })();
+                  if (!renameDraft) return;
+                  void submitRenameDraft(renameDraft);
                 }}
                 onBlur={() => setRenameDraft(null)}
-                disabled={isSaving || isRenaming}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
               />
             </div>
           </div>
@@ -1400,19 +1674,23 @@ function App() {
           }`}
           style={{ paddingLeft: `${depth * 16 + 26}px` }}
           onClick={() => handleOpenFile(node.path)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              if (isSaving || isRenaming || renameDraft) return;
-              const menuWidth = 180;
-              const menuHeight = 44;
-              const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
-              const y = Math.min(
-                event.clientY,
-              window.innerHeight - menuHeight - 8
-            );
-            setTreeContextMenu({ x, y, path: node.path, name: node.name });
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
+            const menuWidth = 200;
+            const menuHeight = 96;
+            const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
+            const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
+            setTreeContextMenu({
+              type: "file",
+              x,
+              y,
+              path: node.path,
+              name: node.name,
+            });
           }}
-          disabled={isSaving || isRenaming}
+          disabled={isSaving || isRenaming || isDeleting || isCreating}
           data-tauri-drag-region="false"
         >
           {node.name}
@@ -1785,7 +2063,7 @@ function App() {
                 type="button"
                 className="primary"
                 onClick={handleSelectVault}
-                disabled={isSaving || isRenaming}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
                 data-tauri-drag-region="false"
               >
                 Select vault
@@ -1830,7 +2108,22 @@ function App() {
               <div className="label">Vault</div>
               <div className="path">{vaultDisplayName}</div>
             </div>
-            <div className="tree">
+            <div
+              className="tree"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                if (!vaultRoot) return;
+                if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
+                const menuWidth = 200;
+                const menuHeight = 96;
+                const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
+                const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
+                const currentFile = activeMarkdownTab?.filePath ?? lastActiveFile;
+                const parentPath = getParentDir(currentFile);
+                setTreeContextMenu({ type: "blank", x, y, parentPath });
+              }}
+              data-tauri-drag-region="false"
+            >
               {fileTree ? (
                 renderTree(fileTree)
               ) : (
@@ -1945,15 +2238,49 @@ function App() {
           data-tauri-drag-region="false"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            className="tree-context-menu-item"
-            onClick={beginRenameFromMenu}
-            disabled={isSaving || isRenaming}
-            data-tauri-drag-region="false"
-          >
-            Rename
-          </button>
+          {treeContextMenu.type === "blank" ? (
+            <>
+              <button
+                type="button"
+                className="tree-context-menu-item"
+                onClick={() => void createFromMenu("file")}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                新建文件
+              </button>
+              <button
+                type="button"
+                className="tree-context-menu-item"
+                onClick={() => void createFromMenu("dir")}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                新建文件夹
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="tree-context-menu-item"
+                onClick={beginRenameFromMenu}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                重命名
+              </button>
+              <button
+                type="button"
+                className="tree-context-menu-item is-danger"
+                onClick={() => void deleteFromMenu()}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                删除
+              </button>
+            </>
+          )}
         </div>
       )}
 
