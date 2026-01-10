@@ -413,6 +413,14 @@ button.ghost.is-danger {
   border-color: transparent;
 }
 
+.tree-context-menu-item.is-danger {
+  color: #b42318;
+}
+
+.tree-context-menu-item.is-danger:hover {
+  background: #ffe4e7;
+}
+
 .tree-dir {
   font-weight: 600;
   color: #314258;
