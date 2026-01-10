@@ -19,7 +19,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github.css";
-import Home from "./Home";
+
 import "./App.css";
 
 type ApiError = { code: string; message: string; details?: unknown };
@@ -2211,8 +2211,15 @@ function App() {
         {sidebarOpen && (
           <aside className="sidebar">
             <div className="vault-meta">
-              <div className="label">Vault</div>
-              <div className="path">{vaultDisplayName}</div>
+              <button
+                type="button"
+                className="vault-name-button"
+                onDoubleClick={handleSelectVault}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                {vaultDisplayName}
+              </button>
             </div>
             <div
               className="tree"
@@ -2241,7 +2248,15 @@ function App() {
 
         <main className="content-pane">
           {activeTab?.type === "home" && (
-            <Home hasVault={Boolean(vaultRoot)} onSelectVault={handleSelectVault} />
+            <div className="editor-pane">
+              <div className="pane-header">
+                <div className="title">Editor</div>
+                <div className="meta">Select a markdown file to start editing</div>
+              </div>
+              <div className="pane-body">
+                <div className="placeholder">{editorPlaceholder}</div>
+              </div>
+            </div>
           )}
 
           {activeTab?.type === "markdown" && (
