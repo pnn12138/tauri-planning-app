@@ -213,6 +213,32 @@ function replaceBasename(path: string, fileName: string) {
   return parts.join("/");
 }
 
+function mergeFileTree(prevNodes: FileNode[] | null | undefined, nextNodes: FileNode[]): FileNode[] {
+  if (!prevNodes) return nextNodes;
+  const prevByPath = new Map<string, FileNode>();
+  for (const node of prevNodes) {
+    prevByPath.set(node.path, node);
+  }
+
+  return nextNodes.map((node) => {
+    const prev = prevByPath.get(node.path);
+    if (!prev) return node;
+    if (node.type !== prev.type) return node;
+
+    if (node.type === "dir") {
+      const children =
+        node.children !== undefined
+          ? mergeFileTree(prev.children, node.children)
+          : prev.children !== undefined
+            ? prev.children
+            : undefined;
+      return { ...node, children };
+    }
+
+    return node;
+  });
+}
+
 function renameNodeInTree(
   nodes: FileNode[],
   oldPath: string,
@@ -318,6 +344,11 @@ function App() {
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const treeContextMenuRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const fileTreeRef = useRef<FileNode[] | null>(null);
+  const expandedDirsRef = useRef<Set<string>>(new Set());
+  const loadingDirsRef = useRef<Set<string>>(new Set());
+  const lastActiveFileRef = useRef<string | null>(null);
+  const activeMarkdownFileRef = useRef<string | null>(null);
   const [topBarHeight, setTopBarHeight] = useState(0);
   const [vaultRoot, setVaultRoot] = useState<string | null>(null);
   const [fileTree, setFileTree] = useState<FileNode[] | null>(null);
@@ -350,6 +381,7 @@ function App() {
     useState<TreeContextMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<RenameDraftState | null>(null);
   const readReqId = useRef(new Map<string, number>());
+  const dirScanReqId = useRef(new Map<string, number>());
   const tabIdRef = useRef(0);
   const webviewsRef = useRef<Map<string, Webview>>(new Map());
   const creatingWebviewsRef = useRef<Set<string>>(new Set());
@@ -392,6 +424,27 @@ function App() {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const activeMarkdownTab = isMarkdownTab(activeTab) ? activeTab : null;
   const activeWebTab = isWebTab(activeTab) ? activeTab : null;
+
+  useEffect(() => {
+    fileTreeRef.current = fileTree;
+  }, [fileTree]);
+
+  useEffect(() => {
+    expandedDirsRef.current = expandedDirs;
+  }, [expandedDirs]);
+
+  useEffect(() => {
+    loadingDirsRef.current = loadingDirs;
+  }, [loadingDirs]);
+
+  useEffect(() => {
+    lastActiveFileRef.current = lastActiveFile;
+  }, [lastActiveFile]);
+
+  useEffect(() => {
+    activeMarkdownFileRef.current = activeMarkdownTab?.filePath ?? null;
+  }, [activeMarkdownTab]);
+
   const activeEditorState = activeMarkdownTab
     ? editorByTab[activeMarkdownTab.id] ?? null
     : null;
@@ -732,6 +785,15 @@ function App() {
           },
         }));
         setLastActiveFile(result.path);
+        const normalizedPath = result.path.replace(/\\/g, "/");
+        const parentPath = getParentDir(normalizedPath);
+        if (parentPath) {
+          setExpandedDirs((prev) => {
+            const next = new Set(prev);
+            addExpandedDirChain(next, parentPath);
+            return next;
+          });
+        }
       } catch (error) {
         if (readReqId.current.get(id) !== nextReqId) return;
         setStatusKind("error");
@@ -868,12 +930,22 @@ function App() {
       try {
         const result = await invokeApi<ScanVaultResponse>("scan_vault");
         setVaultRoot(result.vaultRoot);
-        setFileTree(result.tree);
+        let mergedTree: FileNode[] | null = null;
+        setFileTree((prev) => {
+          const base = options?.resetExpanded ? null : prev;
+          const next = mergeFileTree(base, result.tree);
+          mergedTree = next;
+          return next;
+        });
         setWarnings(result.warnings ?? []);
         if (options?.resetExpanded) {
           setExpandedDirs(new Set());
         }
-        updateDiskMtimeFromTree(result.tree);
+        if (mergedTree) {
+          updateDiskMtimeFromTree(mergedTree);
+        } else {
+          updateDiskMtimeFromTree(result.tree);
+        }
       } catch (error) {
         const err = error as ApiError;
         if (err && typeof err === "object" && err.code === "NoVaultSelected") {
@@ -935,6 +1007,8 @@ function App() {
 
   const loadDirChildren = useCallback(
     async (path: string) => {
+      const nextReqId = (dirScanReqId.current.get(path) ?? 0) + 1;
+      dirScanReqId.current.set(path, nextReqId);
       setLoadingDirs((prev) => {
         const next = new Set(prev);
         next.add(path);
@@ -942,11 +1016,12 @@ function App() {
       });
       try {
         const result = await invokeApi<ScanVaultResponse>("scan_vault", { path });
+        if (dirScanReqId.current.get(path) !== nextReqId) return;
         setFileTree((prev) => {
           if (!prev) return prev;
           const next = updateTree(prev, path, (node) => ({
             ...node,
-            children: result.tree,
+            children: mergeFileTree(node.children, result.tree),
           }));
           updateDiskMtimeFromTree(next);
           return next;
