@@ -608,10 +608,50 @@ fn rename_markdown_impl(
     let parent_abs = resolve_existing_dir(vault_root, parent_rel)?;
     let target_abs = parent_abs.join(&file_name);
     if target_abs.exists() {
-        return Err(ApiError {
+        let same_file = source_abs
+            .canonicalize()
+            .and_then(|source| target_abs.canonicalize().map(|target| source == target))
+            .map_err(|err| map_io_error("Unknown", "Path resolve failed", err))?;
+        if !same_file {
+            return Err(ApiError {
+                code: "WriteFailed".to_string(),
+                message: "Target file already exists".to_string(),
+                details: Some(serde_json::json!({ "path": canonical_to_string(&target_abs) })),
+            });
+        }
+
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let mut temp_abs: Option<PathBuf> = None;
+        for attempt in 0..20u32 {
+            let candidate = parent_abs.join(format!(".tmp-rename-{}-{}", millis, attempt));
+            if !candidate.exists() {
+                temp_abs = Some(candidate);
+                break;
+            }
+        }
+        let temp_abs = temp_abs.ok_or_else(|| ApiError {
             code: "WriteFailed".to_string(),
-            message: "Target file already exists".to_string(),
-            details: Some(serde_json::json!({ "path": canonical_to_string(&target_abs) })),
+            message: "Failed to allocate temp rename path".to_string(),
+            details: Some(serde_json::json!({ "path": canonical_to_string(&parent_abs) })),
+        })?;
+
+        fs::rename(&source_abs, &temp_abs)
+            .map_err(|err| map_write_error("Failed to rename file", err))?;
+        if let Err(err) = fs::rename(&temp_abs, &target_abs) {
+            let _ = fs::rename(&temp_abs, &source_abs);
+            return Err(map_write_error("Failed to rename file", err));
+        }
+
+        let mtime = file_mtime(&target_abs);
+        let mut new_rel = parent_rel.to_path_buf();
+        new_rel.push(file_name);
+        return Ok(RenameMarkdownResponse {
+            old_path: rel_path_text,
+            new_path: rel_path_string(&new_rel),
+            mtime,
         });
     }
 
