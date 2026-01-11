@@ -778,6 +778,51 @@ button.ghost.is-danger {
   gap: 12px;
 }
 
+/* Vault Selection CTA */
+.dashboard-vault-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background-color: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  font-size: 14px;
+  animation: pulse 2s infinite;
+}
+
+.vault-cta-text {
+  color: #92400e;
+  font-weight: 500;
+}
+
+.vault-cta-button {
+  padding: 8px 16px;
+  background-color: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vault-cta-button:hover {
+  background-color: #d97706;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 .dashboard-notification-btn {
   padding: 6px;
   color: #64748b;

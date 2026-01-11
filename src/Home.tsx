@@ -32,6 +32,16 @@ function Home({ hasVault, onSelectVault }: HomeProps) {
             </div>
           </div>
           
+          {/* Vault Selection CTA */}
+          {!hasVault && (
+            <div className="dashboard-vault-cta">
+              <span className="vault-cta-text">请选择工作目录以开始规划</span>
+              <button className="vault-cta-button" onClick={onSelectVault}>
+                选择目录
+              </button>
+            </div>
+          )}
+          
           <div className="dashboard-search">
             <span className="dashboard-search-icon">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
