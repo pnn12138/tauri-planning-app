@@ -22,81 +22,21 @@ import "highlight.js/styles/github.css";
 
 import "./App.css";
 
-// Debounce hook
-const useDebounce = (callback: Function, delay: number) => {
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const debouncedCallback = useCallback(
-    (...args: any[]) => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => {
-        callback(...args);
-      }, delay);
-    },
-    [callback, delay]
-  );
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  return debouncedCallback;
-};
-
-type ApiError = { code: string; message: string; details?: unknown };
-type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
-
-type FileNode = {
-  type: "dir" | "file";
-  name: string;
-  path: string;
-  mtime?: number | null;
-  children?: FileNode[];
-};
-
-type WarningItem = {
-  code: string;
-  message: string;
-  path?: string | null;
-};
-
-type ScanVaultResponse = {
-  vaultRoot: string;
-  tree: FileNode[];
-  warnings: WarningItem[];
-};
-
-type ReadMarkdownResponse = {
-  path: string;
-  content: string;
-  mtime?: number | null;
-};
-
-type WriteMarkdownResponse = {
-  path: string;
-  mtime?: number | null;
-};
-
-type RenameMarkdownResponse = {
-  oldPath: string;
-  newPath: string;
-  mtime?: number | null;
-};
-
-type DeleteEntryResponse = {
-  path: string;
-};
-
-type CreateEntryResponse = {
-  path: string;
-  kind: "file" | "dir";
-};
+import { useDebounce } from "./shared/lib/hooks";
+import type {
+  ApiError,
+  ApiResponse,
+  CreateEntryResponse,
+  DeleteEntryResponse,
+  ReadMarkdownResponse,
+  RenameMarkdownResponse,
+  ScanVaultResponse,
+  WarningItem,
+  WriteMarkdownResponse,
+} from "./shared/types/api";
+import type { FileNode } from "./shared/types/file";
+import type { MarkdownTab, Tab, WebTab } from "./entities/tab/tab.model";
+import { isMarkdownTab, isWebTab } from "./entities/tab/tab.model";
 
 type TreeContextMenuState =
   | { x: number; y: number; type: "file"; path: string; name: string }
@@ -108,35 +48,6 @@ type RenameDraftState = {
   path: string;
   value: string;
 };
-
-type TabType = "home" | "markdown" | "web";
-
-type BaseTab = {
-  id: string;
-  type: TabType;
-  title: string;
-};
-
-type HomeTab = BaseTab & {
-  type: "home";
-};
-
-type MarkdownTab = BaseTab & {
-  type: "markdown";
-  filePath: string;
-};
-
-type WebTab = BaseTab & {
-  type: "web";
-  url: string;
-  loading: boolean;
-  error: string | null;
-  history: string[];
-  historyIndex: number;
-  webviewLabel: string;
-};
-
-type Tab = HomeTab | MarkdownTab | WebTab;
 
 type EditorState = {
   content: string;
@@ -323,14 +234,6 @@ function resolveRelativePath(basePath: string | null, href: string) {
     resolved.push(part);
   }
   return resolved.join("/");
-}
-
-function isMarkdownTab(tab: Tab | null): tab is MarkdownTab {
-  return Boolean(tab && tab.type === "markdown");
-}
-
-function isWebTab(tab: Tab | null): tab is WebTab {
-  return Boolean(tab && tab.type === "web");
 }
 
 class PreviewErrorBoundary extends React.Component<
@@ -1851,8 +1754,6 @@ function App() {
     activeWebTab && activeWebTab.historyIndex < activeWebTab.history.length - 1
   );
   const canReload = Boolean(activeWebTab);
-  const showSave = Boolean(activeMarkdownTab);
-  const isDirty = Boolean(activeEditorState?.dirty);
   const workspacePaddingTop = topBarHeight + 16;
   const addressDisplayValue = activeWebTab
     ? activeWebTab.url
