@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import Home from "./Home";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
@@ -2264,9 +2265,7 @@ function App() {
 
         <main className="content-pane">
           {activeTab?.type === "home" && (
-            <div className="home-pane">
-              <div className="placeholder">Select a markdown file to start editing</div>
-            </div>
+            <Home hasVault={!!vaultRoot} onSelectVault={handleSelectVault} />
           )}
 
           {activeTab?.type === "markdown" && (
