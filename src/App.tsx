@@ -22,6 +22,33 @@ import "highlight.js/styles/github.css";
 
 import "./App.css";
 
+// Debounce hook
+const useDebounce = (callback: Function, delay: number) => {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedCallback = useCallback(
+    (...args: any[]) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => {
+        callback(...args);
+      }, delay);
+    },
+    [callback, delay]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return debouncedCallback;
+};
+
 type ApiError = { code: string; message: string; details?: unknown };
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
@@ -1073,6 +1100,13 @@ function App() {
       setIsSaving(false);
     }
   }, [activeEditorState, activeMarkdownTab, isSaving]);
+
+  // Create a debounced save function that will be called automatically
+  const debouncedSave = useDebounce(() => {
+    if (activeMarkdownTab && activeEditorState && activeEditorState.dirty) {
+      void handleSave();
+    }
+  }, 1000); // Save after 1 second of inactivity
 
 
   const handleOpenFile = useCallback(
@@ -2165,15 +2199,6 @@ function App() {
               >
                 <span className="icon-bars" aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSelectVault}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                Select vault
-              </button>
             </div>
             <div className="top-right">
               {status && (
@@ -2193,15 +2218,6 @@ function App() {
                   </button>
                 </div>
               )}
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSave}
-                disabled={!showSave || isSaving}
-                data-tauri-drag-region="false"
-              >
-                {isSaving ? "Saving..." : `Save${isDirty ? "*" : ""}`}
-              </button>
             </div>
           </div>
         </div>
@@ -2248,14 +2264,8 @@ function App() {
 
         <main className="content-pane">
           {activeTab?.type === "home" && (
-            <div className="editor-pane">
-              <div className="pane-header">
-                <div className="title">Editor</div>
-                <div className="meta">Select a markdown file to start editing</div>
-              </div>
-              <div className="pane-body">
-                <div className="placeholder">{editorPlaceholder}</div>
-              </div>
+            <div className="home-pane">
+              <div className="placeholder">Select a markdown file to start editing</div>
             </div>
           )}
 
@@ -2285,6 +2295,8 @@ function App() {
                             dirty: true,
                           },
                         }));
+                        // Trigger debounced save
+                        debouncedSave();
                       }}
                     />
                   ) : (
