@@ -19,8 +19,35 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github.css";
-import Home from "./Home";
+
 import "./App.css";
+
+// Debounce hook
+const useDebounce = (callback: Function, delay: number) => {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedCallback = useCallback(
+    (...args: any[]) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => {
+        callback(...args);
+      }, delay);
+    },
+    [callback, delay]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return debouncedCallback;
+};
 
 type ApiError = { code: string; message: string; details?: unknown };
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
@@ -1073,6 +1100,13 @@ function App() {
       setIsSaving(false);
     }
   }, [activeEditorState, activeMarkdownTab, isSaving]);
+
+  // Create a debounced save function that will be called automatically
+  const debouncedSave = useDebounce(() => {
+    if (activeMarkdownTab && activeEditorState && activeEditorState.dirty) {
+      void handleSave();
+    }
+  }, 1000); // Save after 1 second of inactivity
 
 
   const handleOpenFile = useCallback(
@@ -2165,15 +2199,6 @@ function App() {
               >
                 <span className="icon-bars" aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSelectVault}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                Select vault
-              </button>
             </div>
             <div className="top-right">
               {status && (
@@ -2193,15 +2218,6 @@ function App() {
                   </button>
                 </div>
               )}
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSave}
-                disabled={!showSave || isSaving}
-                data-tauri-drag-region="false"
-              >
-                {isSaving ? "Saving..." : `Save${isDirty ? "*" : ""}`}
-              </button>
             </div>
           </div>
         </div>
@@ -2211,8 +2227,15 @@ function App() {
         {sidebarOpen && (
           <aside className="sidebar">
             <div className="vault-meta">
-              <div className="label">Vault</div>
-              <div className="path">{vaultDisplayName}</div>
+              <button
+                type="button"
+                className="vault-name-button"
+                onDoubleClick={handleSelectVault}
+                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                data-tauri-drag-region="false"
+              >
+                {vaultDisplayName}
+              </button>
             </div>
             <div
               className="tree"
@@ -2241,7 +2264,9 @@ function App() {
 
         <main className="content-pane">
           {activeTab?.type === "home" && (
-            <Home hasVault={Boolean(vaultRoot)} onSelectVault={handleSelectVault} />
+            <div className="home-pane">
+              <div className="placeholder">Select a markdown file to start editing</div>
+            </div>
           )}
 
           {activeTab?.type === "markdown" && (
@@ -2270,6 +2295,8 @@ function App() {
                             dirty: true,
                           },
                         }));
+                        // Trigger debounced save
+                        debouncedSave();
                       }}
                     />
                   ) : (

@@ -346,6 +346,30 @@ button.ghost.is-danger {
   color: #2c3e50;
 }
 
+.vault-name-button {
+  width: 100%;
+  border: 1px solid #ccd5df;
+  background: #f8fafc;
+  color: #17202a;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  font-size: 13px;
+  text-align: left;
+}
+
+.vault-name-button:hover {
+  border-color: #7e97b1;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+.vault-name-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .tree {
   flex: 1;
   padding: 8px 0;
