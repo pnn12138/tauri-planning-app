@@ -24,7 +24,7 @@ import "highlight.js/styles/github.css";
 import ExplorerPanel from "./features/explorer/ExplorerPanel";
 import MarkdownTabView from "./features/editor/MarkdownTabView";
 import WebTabView from "./features/web/WebTabView";
-import { scanVault } from "./features/explorer/explorer.actions";
+import { deleteEntry, renameMarkdown, scanVault } from "./features/explorer/explorer.actions";
 import { resetExplorerState, useExplorerStore } from "./features/explorer/explorer.store";
 
 import "./App.css";
@@ -162,6 +162,20 @@ function getTabTitleFromUrl(url: string) {
 function getFileTitle(path: string) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
+}
+
+function isPathInDir(path: string, dir: string) {
+  if (!dir) return true;
+  return path === dir || path.startsWith(`${dir}/`);
+}
+
+function replacePathPrefix(path: string, oldPrefix: string, newPrefix: string) {
+  if (path === oldPrefix) return newPrefix;
+  if (!oldPrefix) return path;
+  if (path.startsWith(`${oldPrefix}/`)) {
+    return `${newPrefix}${path.slice(oldPrefix.length)}`;
+  }
+  return path;
 }
 
 function normalizeAddressInput(input: string) {
@@ -730,6 +744,134 @@ function App() {
   useEffect(() => {
     void refreshExplorer({ silent: true, resetExpanded: true });
   }, [refreshExplorer]);
+
+  const handleExplorerRenameEntry = useCallback(
+    async (input: { kind: "file" | "dir"; path: string; newName: string }) => {
+      try {
+        const result = await renameMarkdown({ path: input.path, newName: input.newName });
+        setTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.type !== "markdown") return tab;
+            if (input.kind === "file") {
+              if (tab.filePath !== result.oldPath) return tab;
+              return {
+                ...tab,
+                filePath: result.newPath,
+                title: getFileTitle(result.newPath),
+              };
+            }
+
+            if (!isPathInDir(tab.filePath, result.oldPath)) return tab;
+            const nextPath = replacePathPrefix(tab.filePath, result.oldPath, result.newPath);
+            return {
+              ...tab,
+              filePath: nextPath,
+              title: getFileTitle(nextPath),
+            };
+          })
+        );
+        setStatusKind("info");
+        setStatus(`已重命名：${result.oldPath} -> ${result.newPath}`);
+      } catch (error) {
+        setStatusKind("error");
+        setStatus(formatError(error));
+      }
+    },
+    []
+  );
+
+  const handleExplorerDeleteEntry = useCallback(
+    async (input: { kind: "file" | "dir"; path: string; name: string }) => {
+      if (!isTauriRuntime) {
+        setStatusKind("error");
+        setStatus("删除需要在 Tauri 运行时中使用。");
+        return;
+      }
+
+      const isDir = input.kind === "dir";
+      const targetPath = input.path;
+      const isAffected = (filePath: string) =>
+        isDir ? isPathInDir(filePath, targetPath) : filePath === targetPath;
+
+      const affectedMarkdownTabs = tabs.filter(
+        (tab): tab is MarkdownTab => tab.type === "markdown" && isAffected(tab.filePath)
+      );
+      const dirtyTabs = affectedMarkdownTabs.filter((tab) => editorByTab[tab.id]?.dirty);
+      if (dirtyTabs.length > 0) {
+        const dirtyLinesMax = 8;
+        const dirtyLines = dirtyTabs
+          .slice(0, dirtyLinesMax)
+          .map((tab) => `- ${tab.filePath}`)
+          .join("\n");
+        const dirtyMore =
+          dirtyTabs.length > dirtyLinesMax
+            ? `\n- ... (+${dirtyTabs.length - dirtyLinesMax})`
+            : "";
+        const proceed = window.confirm(
+          `Warning: the following open files have unsaved changes. Deleting will discard them:\n${dirtyLines}${dirtyMore}\n\nContinue?`
+        );
+        if (!proceed) return;
+      }
+
+      const confirmed = window.confirm(
+        isDir
+          ? `确认删除文件夹“${input.name}”及其内容吗？`
+          : `确认删除文件“${input.name}”吗？`
+      );
+      if (!confirmed) return;
+
+      try {
+        await deleteEntry({ path: targetPath });
+
+        const removedTabIds = new Set(affectedMarkdownTabs.map((tab) => tab.id));
+        const activeRemoved = removedTabIds.has(activeTabId);
+        let nextActiveId = activeTabId;
+        if (activeRemoved) {
+          const currentIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+          nextActiveId = HOME_TAB_ID;
+          for (let index = currentIndex - 1; index >= 0; index--) {
+            const candidate = tabs[index];
+            if (!candidate) continue;
+            if (!removedTabIds.has(candidate.id)) {
+              nextActiveId = candidate.id;
+              break;
+            }
+          }
+          if (nextActiveId === HOME_TAB_ID) {
+            for (let index = currentIndex + 1; index < tabs.length; index++) {
+              const candidate = tabs[index];
+              if (!candidate) continue;
+              if (!removedTabIds.has(candidate.id)) {
+                nextActiveId = candidate.id;
+                break;
+              }
+            }
+          }
+        }
+
+        if (activeRemoved) {
+          setActiveTabId(nextActiveId);
+        }
+        setTabs((prev) => prev.filter((tab) => !removedTabIds.has(tab.id)));
+        if (removedTabIds.size > 0) {
+          setEditorByTab((prev) => {
+            const next = { ...prev };
+            for (const tabId of removedTabIds) {
+              delete next[tabId];
+            }
+            return next;
+          });
+        }
+
+        setStatusKind("info");
+        setStatus(`已删除：${targetPath}`);
+      } catch (error) {
+        setStatusKind("error");
+        setStatus(formatError(error));
+      }
+    },
+    [activeTabId, editorByTab, isTauriRuntime, tabs]
+  );
 
   const handleSelectVault = useCallback(async () => {
     setStatus(null);
@@ -1398,6 +1540,8 @@ function App() {
               vaultRoot={vaultRoot}
               openTab={handleOpenFile}
               activePath={activeMarkdownTab?.filePath ?? null}
+              onRenameEntry={handleExplorerRenameEntry}
+              onDeleteEntry={handleExplorerDeleteEntry}
             />
           </aside>
         )}

@@ -16,6 +16,16 @@ export type ExplorerPanelProps = {
   vaultRoot: string | null;
   openTab: (path: string) => void;
   activePath: string | null;
+  onRenameEntry?: (input: {
+    kind: "file" | "dir";
+    path: string;
+    newName: string;
+  }) => Promise<void>;
+  onDeleteEntry?: (input: {
+    kind: "file" | "dir";
+    path: string;
+    name: string;
+  }) => Promise<void>;
 };
 
 export default function ExplorerPanel(props: ExplorerPanelProps) {
@@ -125,12 +135,29 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
           }
         }
 
+        if (props.onRenameEntry) {
+          await props.onRenameEntry({
+            kind: menu.type,
+            path: menu.path,
+            newName: finalName,
+          });
+          return;
+        }
+
         await renameMarkdown({ path: menu.path, newName: finalName });
         return;
       }
 
       if (id === "delete") {
         if (menu.type === "blank") return;
+        if (props.onDeleteEntry) {
+          await props.onDeleteEntry({
+            kind: menu.type,
+            path: menu.path,
+            name: menu.name,
+          });
+          return;
+        }
         const confirmed = window.confirm(
           menu.type === "dir"
             ? `确认删除文件夹“${menu.name}”及其内容吗？`
