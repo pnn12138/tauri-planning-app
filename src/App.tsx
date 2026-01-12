@@ -29,75 +29,15 @@ import { resetExplorerState, useExplorerStore } from "./features/explorer/explor
 
 import "./App.css";
 
-// Debounce hook
-const useDebounce = (callback: Function, delay: number) => {
-  const timeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-
-  const debouncedCallback = useCallback(
-    (...args: any[]) => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => {
-        callback(...args);
-      }, delay);
-    },
-    [callback, delay]
-  );
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  return debouncedCallback;
-};
-
-type ApiError = { code: string; message: string; details?: unknown };
-type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
-
-type ReadMarkdownResponse = {
-  path: string;
-  content: string;
-  mtime?: number | null;
-};
-
-type WriteMarkdownResponse = {
-  path: string;
-  mtime?: number | null;
-};
-
-type TabType = "home" | "markdown" | "web";
-
-type BaseTab = {
-  id: string;
-  type: TabType;
-  title: string;
-};
-
-type HomeTab = BaseTab & {
-  type: "home";
-};
-
-type MarkdownTab = BaseTab & {
-  type: "markdown";
-  filePath: string;
-};
-
-type WebTab = BaseTab & {
-  type: "web";
-  url: string;
-  loading: boolean;
-  error: string | null;
-  history: string[];
-  historyIndex: number;
-  webviewLabel: string;
-};
-
-type Tab = HomeTab | MarkdownTab | WebTab;
+import { useDebounce } from "./shared/lib/hooks";
+import type {
+  ApiError,
+  ApiResponse,
+  ReadMarkdownResponse,
+  WriteMarkdownResponse,
+} from "./shared/types/api";
+import type { MarkdownTab, Tab, WebTab } from "./entities/tab/tab.model";
+import { isMarkdownTab, isWebTab } from "./entities/tab/tab.model";
 
 type EditorState = {
   content: string;
@@ -218,14 +158,6 @@ function resolveRelativePath(basePath: string | null, href: string) {
     resolved.push(part);
   }
   return resolved.join("/");
-}
-
-function isMarkdownTab(tab: Tab | null): tab is MarkdownTab {
-  return Boolean(tab && tab.type === "markdown");
-}
-
-function isWebTab(tab: Tab | null): tab is WebTab {
-  return Boolean(tab && tab.type === "web");
 }
 
 class PreviewErrorBoundary extends React.Component<
