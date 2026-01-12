@@ -1,0 +1,11 @@
+{
+  "id": "hello",
+  "name": "Hello Plugin",
+  "version": "0.1.0",
+  "entry": "main.js",
+  "description": "Example vault plugin: registers a command and writes a file.",
+  "author": "Example",
+  "minAppVersion": "0.1.0",
+  "permissions": ["commands.register", "vault.write"]
+}
+

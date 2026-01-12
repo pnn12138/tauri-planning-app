@@ -14,6 +14,8 @@ import MarkdownTabView from "./features/editor/MarkdownTabView";
 import WebTabView from "./features/web/WebTabView";
 import { deleteEntry, renameMarkdown, scanVault } from "./features/explorer/explorer.actions";
 import { resetExplorerState, useExplorerStore } from "./features/explorer/explorer.store";
+import PluginsPanel from "./features/plugins/PluginsPanel";
+import { refreshPlugins, usePluginsStore } from "./features/plugins/plugins.store";
 import {
   closeTab,
   getTabById,
@@ -34,6 +36,9 @@ import {
 import { installWebBridge } from "./features/web/bridge";
 import { goBack, goForward, navigateActiveWebTab, openWebTab, reloadWebTab } from "./features/web/web.actions";
 import { removeWebTab, useWebStore } from "./features/web/web.store";
+import CommandPalette from "./shared/ui/CommandPalette";
+import { registerCommand as registerCoreCommand } from "./shared/commands/commands.store";
+import { pluginHost } from "./shared/plugin_host/host";
 
 import "./App.css";
 
@@ -103,12 +108,19 @@ function App() {
   const [topBarHeight, setTopBarHeight] = useState(0);
   const [vaultRoot, setVaultRoot] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isPluginsOpen, setIsPluginsOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const status = useStatusStore((state) => state.message);
   const statusKindValue = useStatusStore((state) => state.kind);
   const warnings = useExplorerStore((state) => state.warnings);
   const tabs = useTabStore((state) => state.tabs);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const editorByTab = useEditorStore((state) => state.editorByTab);
+  const enabledPluginManifests = usePluginsStore((state) =>
+    state.plugins
+      .filter((plugin) => plugin.enabled && plugin.manifest && !plugin.error)
+      .map((plugin) => plugin.manifest!)
+  );
   const [isMaximized, setIsMaximized] = useState(false);
   const [addressInput, setAddressInput] = useState("Home");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
@@ -414,6 +426,40 @@ function App() {
   }, [isTauriRuntime]);
 
   useEffect(() => {
+    registerCoreCommand({
+      key: "core:select-vault",
+      title: "Select Vault",
+      source: "core",
+      run: async () => {
+        await handleSelectVault();
+      },
+    });
+    registerCoreCommand({
+      key: "core:open-plugins",
+      title: "Open Plugins",
+      source: "core",
+      run: () => setIsPluginsOpen(true),
+    });
+    registerCoreCommand({
+      key: "core:open-command-palette",
+      title: "Open Command Palette",
+      source: "core",
+      run: () => setIsCommandPaletteOpen(true),
+    });
+  }, [handleSelectVault]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() !== "p") return;
+      event.preventDefault();
+      setIsCommandPaletteOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
     const updateHeight = () => {
       if (!topBarRef.current) return;
       const rect = topBarRef.current.getBoundingClientRect();
@@ -461,6 +507,22 @@ function App() {
       if (cleanup) cleanup();
     };
   }, [isTauriRuntime]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || !vaultRoot) {
+      pluginHost.unloadAll();
+      return;
+    }
+    void refreshPlugins();
+  }, [isTauriRuntime, vaultRoot]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || !vaultRoot) {
+      pluginHost.unloadAll();
+      return;
+    }
+    void pluginHost.syncEnabledManifests(enabledPluginManifests);
+  }, [enabledPluginManifests, isTauriRuntime, vaultRoot]);
 
   const vaultDisplayName = getVaultDisplayName(vaultRoot);
   const canGoBack = Boolean(activeWebState?.canBack);
@@ -750,6 +812,26 @@ function App() {
               >
                 <span className="icon-bars" aria-hidden="true" />
               </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setIsCommandPaletteOpen(true)}
+                aria-label="Open command palette"
+                title="Commands (Ctrl/Cmd+P)"
+                data-tauri-drag-region="false"
+              >
+                ⌘P
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setIsPluginsOpen(true)}
+                aria-label="Open plugins"
+                title="Plugins"
+                data-tauri-drag-region="false"
+              >
+                Plugins
+              </button>
             </div>
             <div className="top-right">
               {status && (
@@ -821,6 +903,9 @@ function App() {
           ))}
         </div>
       )}
+
+      <CommandPalette open={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
+      {isPluginsOpen && <PluginsPanel onClose={() => setIsPluginsOpen(false)} />}
 
     </div>
   );
