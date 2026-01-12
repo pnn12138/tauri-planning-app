@@ -112,6 +112,12 @@ export default function MarkdownTabView(props: { tabId: string }) {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave]);
 
+  useEffect(() => {
+    return () => {
+      void handleSave();
+    };
+  }, [handleSave]);
+
   if (!tab || tab.type !== "markdown") {
     return <div className="placeholder">No markdown tab selected.</div>;
   }
