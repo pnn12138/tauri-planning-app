@@ -175,7 +175,10 @@ export default function WebTabView(props: { tabId: string }) {
       });
       await syncWebviewBounds();
     };
-    void setup();
+    void setup().catch((error) => {
+      setStatusKind("error");
+      setStatusMessage(`Webview setup failed: ${String(error)}`);
+    });
     return () => {
       if (unlistenResize) unlistenResize();
       if (unlistenMove) unlistenMove();
