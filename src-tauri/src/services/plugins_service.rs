@@ -7,6 +7,7 @@ use crate::paths::rel_path_string;
 use crate::repo::settings_repo;
 use crate::security::path_policy;
 use crate::services::vault_service;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const PLUGINS_DIR: &str = ".yourapp/plugins";
 const MANIFEST_FILE: &str = "manifest.json";
@@ -253,10 +254,67 @@ pub fn vault_write_text(
     if let Some(parent) = abs_path.parent() {
         path_policy::ensure_or_create_dir_in_vault(vault_root, parent)?;
     }
-    fs::write(&abs_path, content).map_err(|err| map_write_error("Failed to write file", err))?;
+
+    if abs_path.exists() {
+        let meta = fs::symlink_metadata(&abs_path).map_err(map_read_error)?;
+        if meta.file_type().is_symlink() {
+            return Err(ApiError {
+                code: "SymlinkNotAllowed".to_string(),
+                message: "Symlink file is not allowed".to_string(),
+                details: Some(serde_json::json!({ "path": rel_path_string(rel_path) })),
+            });
+        }
+    }
+
+    let parent = abs_path.parent().ok_or_else(|| ApiError {
+        code: "WriteFailed".to_string(),
+        message: "Invalid target path".to_string(),
+        details: None,
+    })?;
+
+    let temp_name = format!(
+        ".tmp-plugin-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let temp_path = parent.join(temp_name);
+
+    fs::write(&temp_path, content).map_err(|err| map_write_error("Failed to write temp file", err))?;
+
+    if let Err(err) = fs::rename(&temp_path, &abs_path) {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            if let Ok(meta) = fs::symlink_metadata(&abs_path) {
+                if meta.file_type().is_symlink() {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(ApiError {
+                        code: "SymlinkNotAllowed".to_string(),
+                        message: "Symlink file is not allowed".to_string(),
+                        details: Some(serde_json::json!({ "path": rel_path_string(rel_path) })),
+                    });
+                }
+            }
+            if let Err(remove_err) = fs::remove_file(&abs_path) {
+                let _ = fs::remove_file(&temp_path);
+                return Err(map_write_error("Failed to remove existing file", remove_err));
+            }
+            fs::rename(&temp_path, &abs_path)
+                .map_err(|rename_err| map_write_error("Failed to replace file", rename_err))?;
+        } else {
+            let _ = fs::remove_file(&temp_path);
+            return Err(map_write_error("Failed to write file", err));
+        }
+    }
+
+    let mtime = fs::metadata(&abs_path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+
     Ok(vault_service::WriteTextResult {
         path: rel_path_string(rel_path),
-        mtime: None,
+        mtime,
     })
 }
-

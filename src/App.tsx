@@ -513,7 +513,10 @@ function App() {
       pluginHost.unloadAll();
       return;
     }
-    void refreshPlugins();
+    void refreshPlugins().catch((error) => {
+      setStatusKind("error");
+      setStatus(formatError(error));
+    });
   }, [isTauriRuntime, vaultRoot]);
 
   useEffect(() => {
@@ -521,7 +524,10 @@ function App() {
       pluginHost.unloadAll();
       return;
     }
-    void pluginHost.syncEnabledManifests(enabledPluginManifests);
+    void pluginHost.syncEnabledManifests(enabledPluginManifests).catch((error) => {
+      setStatusKind("error");
+      setStatus(formatError(error));
+    });
   }, [enabledPluginManifests, isTauriRuntime, vaultRoot]);
 
   const vaultDisplayName = getVaultDisplayName(vaultRoot);
