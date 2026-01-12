@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 
 import { findWebTabByLabel, updateTab } from "../../entities/tab/tab.store";
+import { setStatus } from "../../shared/ui/status.store";
 import { openWebTab } from "./web.actions";
 import { ensureWebTab, updateWebFromBridge } from "./web.store";
 
@@ -59,7 +60,12 @@ export function installWebBridge(options: { enabled: boolean }) {
     });
   };
 
-  void setup();
+  void setup().catch((error) => {
+    const err = error as any;
+    const code = typeof err?.code === "string" ? err.code : "Unknown";
+    const message = typeof err?.message === "string" ? err.message : String(error);
+    setStatus("error", `${code}: ${message}`);
+  });
   return () => {
     if (unlistenState) unlistenState();
     if (unlistenOpen) unlistenOpen();

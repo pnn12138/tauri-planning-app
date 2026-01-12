@@ -500,9 +500,14 @@ function App() {
       };
     };
     let cleanup: (() => void) | undefined;
-    void setup().then((dispose) => {
-      cleanup = dispose;
-    });
+    void setup()
+      .then((dispose) => {
+        cleanup = dispose;
+      })
+      .catch((error) => {
+        setStatusKind("error");
+        setStatus(formatError(error));
+      });
     return () => {
       if (cleanup) cleanup();
     };
