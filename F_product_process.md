@@ -102,6 +102,7 @@ d:\tauri\tauri-planning-app/
 - **Command**: `scan_vault` scans the vault and returns a tree of `FileNode`.
 - **Filtering**: Directories first, then files; hidden entries and non-`.md` files are excluded.
 - **Safety**: Symlinks are rejected; all paths are relative to the vault.
+- **Windows**: Symlink checks avoid probing bare drive prefixes (e.g. `C:`) to prevent metadata errors.
 - **Large Vault Feedback**: Warnings returned when the entry count is high.
 - **Partial Results**: Permission-denied directories are skipped with warnings.
 - **Lazy Loading**: `scan_vault` accepts an optional relative `path` to load the children of a directory on demand.

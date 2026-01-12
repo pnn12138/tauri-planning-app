@@ -38,6 +38,9 @@ pub fn ensure_no_symlink(path: &Path) -> Result<(), ApiError> {
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component);
+        if matches!(component, std::path::Component::Prefix(_)) {
+            continue;
+        }
         let meta = fs::symlink_metadata(&current)
             .map_err(|err| map_io_error("Unknown", "Metadata failed", err))?;
         if meta.file_type().is_symlink() {
@@ -49,6 +52,19 @@ pub fn ensure_no_symlink(path: &Path) -> Result<(), ApiError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn ensure_no_symlink_does_not_probe_drive_prefix() {
+        let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+        let drive_root = PathBuf::from(format!("{system_drive}\\"));
+        ensure_no_symlink(&drive_root).unwrap();
+    }
 }
 
 pub fn resolve_existing_path(vault_root: &Path, rel_path: &Path) -> Result<PathBuf, ApiError> {

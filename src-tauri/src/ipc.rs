@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::path::Path;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct ApiError {
     pub code: String,
     pub message: String,
