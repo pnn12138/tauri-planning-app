@@ -2,6 +2,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -116,15 +117,17 @@ function App() {
   const tabs = useTabStore((state) => state.tabs);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const editorByTab = useEditorStore((state) => state.editorByTab);
-  const enabledPluginManifests = usePluginsStore((state) =>
-    state.plugins
-      .filter((plugin) => plugin.enabled && plugin.manifest && !plugin.error)
-      .map((plugin) => plugin.manifest!)
-  );
+  const plugins = usePluginsStore((state) => state.plugins);
   const [isMaximized, setIsMaximized] = useState(false);
   const [addressInput, setAddressInput] = useState("Home");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const mainWindowRef = useRef<ReturnType<typeof getCurrentWindow> | null>(null);
+
+  const enabledPluginManifests = useMemo(() => {
+    return plugins
+      .filter((plugin) => plugin.enabled && plugin.manifest && !plugin.error)
+      .map((plugin) => plugin.manifest!);
+  }, [plugins]);
 
   const handleTopBarMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
