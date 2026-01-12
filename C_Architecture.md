@@ -10,13 +10,19 @@ This document describes the architecture, responsibility boundaries, and IPC con
   - Middle: Markdown editor (CodeMirror 6)
   - Right: Live Markdown preview (read-only preview for `.md` files)
 - Open, edit, and save Markdown files within the vault.
-- Only Markdown is supported for now.
+- Web tab support for browsing web content.
 
-### 1.2 Non-goals (for now)
+### 1.2 Non-goals (分阶段)
+#### MVP non-goals
 - Search / favorites / tags / graph view / plugins
 - Multi-tab / split view / multi-window layout persistence
 - Sync / account / cloud storage
 - Rich attachments management (images/pdf) beyond basic Markdown rendering
+
+#### Phase 2+ (进行中)
+- Plugins v0 (Command Palette + 事件订阅 + 受控文件读写 + Markdown 后处理)
+
+> 插件系统不属于 MVP 验收范围，但属于 Phase 2+ 的平台演进目标。Phase 2 将引入插件 v0：仅命令/事件/受控文件读写/Markdown 后处理，插件在 WebWorker 中隔离运行，后端不执行插件代码。
 
 ---
 
@@ -96,7 +102,22 @@ Rules can be extended later.
 - When collapsed, editor + preview take full width.
 
 ### 5.2 State model (MVP)
-Minimal frontend state:
+
+#### 5.2.1 State Management Strategy
+- **核心实体 store**：
+  - `entities/tab`：标签页管理（Tab 状态、activeTabId）
+  - `entities/vault`：Vault 管理（vaultRoot）
+- **Feature 就地 store**：
+  - `features/editor/editor.store.ts`：编辑器状态（内容、dirty 状态、保存状态）
+  - `features/explorer/explorer.store.ts`：文件树状态（文件树、展开目录、加载状态）
+  - `features/web/web.store.ts`：Web 标签页状态（URL、历史、加载状态）
+  - `shared/ui/status.store.ts`：全局状态消息
+
+#### 5.2.2 跨模块通信规则
+- 禁止 feature 之间互相 import 对方 store
+- 跨模块通信通过 **eventBus**（系统事件白名单）或 **command registry**
+
+#### 5.2.3 Minimal frontend state
 - `vaultRoot` (string | null)
 - `fileTree` (tree structure)
 - `activeFile` (relative path)
@@ -104,8 +125,6 @@ Minimal frontend state:
 - `dirty` (boolean)
 - `sidebarOpen` (boolean)
 - `sidebarWidth` (number; optional)
-
-State should be centralized (single store) to avoid cross-component drift.
 
 ### 5.3 Rendering pipeline (preview)
 - Input: raw Markdown string
@@ -121,15 +140,46 @@ Links (optional for MVP):
 
 ## 6. Backend architecture (Rust)
 
-### 6.1 Responsibilities
+### 6.1 lib.rs 入口层红线（硬规则）
+> lib.rs 仅作为 Tauri 入口与命令注册层存在，禁止出现任何业务逻辑。
+
+**规则：**
+- `src-tauri/src/lib.rs` **只允许**：模块声明、状态初始化、命令注册（invoke_handler）、setup
+- `src-tauri/src/lib.rs` **禁止**：
+  - 任何业务实现（文件读写、manifest 解析、路径校验、sidecar 调度）
+  - 任何与插件逻辑相关的实现细节
+
+**验收方式：**
+- `rg "#[tauri::command]" src-tauri/src` 结果中 **不得出现** `lib.rs`
+- `lib.rs` 行数维持在注册层规模（建议 < 200 行）
+
+### 6.2 后端分层目录规范
+
+推荐结构：
+```
+src-tauri/src/
+  lib.rs
+  commands/      # 仅 IPC 入口（薄）
+  services/      # 业务编排（厚）
+  security/      # 路径边界/大小限制/策略（硬）
+  repo/          # 设置持久化（读写 .yourapp/settings.json）
+```
+
+**分层约束：**
+- commands 不允许直接做文件 IO（必须调用 services）
+- services 不允许绕过 security（路径/大小限制必须统一走 security）
+
+### 6.3 Responsibilities
 Backend provides:
 - Directory scan to build file tree (folders + `.md` files)
 - Read file content by relative path
 - Write file content by relative path
+- File operations (create, rename, delete)
+- Web tab bridge communication
 - Enforce vault boundary for all file operations
 - Provide consistent error responses
 
-### 6.2 Boundary enforcement (security)
+### 6.4 Boundary enforcement (security)
 For any file request:
 1. Join `vault_root + rel_path`
 2. Canonicalize the resulting path
@@ -139,7 +189,7 @@ For any file request:
 
 No backend command should accept arbitrary absolute paths from the frontend.
 
-### 6.3 Encoding handling
+### 6.5 Encoding handling
 - Prefer UTF-8
 - If decoding fails, return a structured error (do not crash)
 - Later: consider fallback detection strategies if needed
@@ -158,9 +208,11 @@ All IPC calls return a consistent envelope:
 
 Frontend should not rely on error message text. Use `code` for handling.
 
-### 7.2 Commands (MVP)
+### 7.2 Commands (P1 已实现)
 
 #### 7.2.1 `select_vault`
+**Status**: Stable
+
 Purpose:
 - Ask user to select a directory and set it as vault root (or return existing)
 
@@ -171,9 +223,11 @@ Output:
 - `{ vaultRoot: string }` (absolute path)
 
 Notes:
-- Can be implemented via Tauri dialog APIs.
+- Implemented via Tauri dialog APIs.
 
 #### 7.2.2 `scan_vault`
+**Status**: Stable
+
 Purpose:
 - Scan vault root and return a file tree.
 
@@ -193,6 +247,8 @@ Filtering:
 - include `.md` files only (in MVP)
 
 #### 7.2.3 `read_markdown`
+**Status**: Stable
+
 Purpose:
 - Read a markdown file content.
 
@@ -209,6 +265,8 @@ Errors:
 - `DecodeFailed`
 
 #### 7.2.4 `write_markdown`
+**Status**: Stable
+
 Purpose:
 - Write a markdown file content.
 
@@ -223,6 +281,80 @@ Errors:
 - `PermissionDenied`
 - `PathOutsideVault`
 - `WriteFailed`
+
+#### 7.2.5 `rename_markdown`
+**Status**: Stable
+
+Purpose:
+- Rename a file or directory.
+
+Input:
+- `{ path: string, newName: string }` (relative to vault root)
+
+Output:
+- `{ oldPath: string, newPath: string, mtime?: number }`
+
+Errors:
+- `NotFound`
+- `PermissionDenied`
+- `PathOutsideVault`
+- `WriteFailed`
+
+#### 7.2.6 `delete_entry`
+**Status**: Stable
+
+Purpose:
+- Delete a file or directory.
+
+Input:
+- `{ path: string }` (relative to vault root)
+
+Output:
+- `{ path: string }`
+
+Errors:
+- `NotFound`
+- `PermissionDenied`
+- `PathOutsideVault`
+- `WriteFailed`
+
+#### 7.2.7 `create_entry`
+**Status**: Stable
+
+Purpose:
+- Create a new file or directory.
+
+Input:
+- `{ parentPath?: string, kind: string }` (relative to vault root)
+
+Output:
+- `{ path: string, kind: string }`
+
+Errors:
+- `NotFound`
+- `PermissionDenied`
+- `PathOutsideVault`
+- `WriteFailed`
+
+### 7.3 Events
+
+#### 7.3.1 `webview-state`
+**Status**: Stable
+
+Purpose:
+- Webview emits state changes (URL, title, loading status).
+
+Payload:
+- `{ label: string, url: string, title: string, readyState: string }`
+
+#### 7.3.2 `webview-open`
+**Status**: Stable
+
+Purpose:
+- Webview requests to open a URL.
+
+Payload:
+- `{ label: string, url: string }`
 
 ---
 
@@ -273,3 +405,26 @@ Errors:
 3. All file operations must be vault-scoped and validated.
 4. Keep IPC surface small and stable; add commands deliberately.
 5. MVP prioritizes correctness and simplicity over feature richness.
+6. lib.rs must remain as a thin entry layer only, no business logic.
+7. Feature stores must not be imported directly by other features.
+8. Web content must be a tab type, not a separate window.
+
+---
+
+## 12. Checks (可执行验证脚本)
+
+以下命令用于验证架构规则是否被遵守：
+
+```bash
+# 1) 检查 lib.rs 中是否存在 tauri command（应为空结果）
+rg "#[tauri::command]" src-tauri/src
+
+# 2) 检查是否有跨 feature 直接引用 store（应为空结果）
+rg "from\s+['\"].{1,2}/features/.*/.*\.store" src
+
+# 3) 检查 IPC 调用是否都使用了统一的返回格式
+rg "invoke\(" src -g"*.ts" -g"*.tsx"
+
+# 4) 检查 lib.rs 行数（应保持在注册层规模）
+wsl wc -l src-tauri/src/lib.rs
+```

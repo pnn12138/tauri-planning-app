@@ -10,7 +10,19 @@
 
 ---
 
-## 2. 当前阶段对齐
+## 2. 当前状态
+### Phase 1 DONE
+- MVP 核心功能完成：vault 管理、文件树浏览、Markdown 编辑、实时预览、Web 标签页
+- 架构实现：feature 模块化、IPC 封装、eventBus、command registry、dirty guard
+- 技术栈：React 19 + TypeScript + Vite + CodeMirror 6 + Tauri 2
+
+### Phase 2 NEXT
+- **目标**：平台可扩展性与安全隔离
+- **核心功能**：Vault 内插件 + Worker 隔离 + 插件 v0
+
+---
+
+## 3. 当前阶段对齐
 - 当前阶段以 `product_process.md` 为准。
 - 若阶段信息尚未补充，应先完善 `product_process.md`，再细化本文件中的分期内容。
 ### 当前阶段能力（MVP）
@@ -136,7 +148,40 @@
 
 ---
 
-## 10. 未来扩展方向（仅框架提示）
+## 10. Phase 2：Plugins v0
+### 10.1 目标
+- 实现平台可扩展性与安全隔离
+- 支持 Vault 内插件运行
+- 插件在 WebWorker 中隔离执行
+
+### 10.2 范围
+- **插件目录**：`<VAULT>/.yourapp/plugins/<pluginId>/`
+- **运行环境**：WebWorker（每插件一个 worker）
+- **核心能力**：
+  - 命令注册（Command Palette）
+  - 系统事件订阅（白名单）
+  - 受控文件读写（vault 内）
+  - Markdown 后处理（Preview postprocess）
+
+### 10.3 交付标准（DoD）
+- 插件可被扫描、加载与执行
+- 插件运行在隔离的 WebWorker 环境中
+- 插件只能访问指定的 vault 内资源
+- 插件可以注册命令并在 Command Palette 中显示
+- 插件可以订阅系统事件
+- 插件可以处理 Markdown 预览内容
+
+### 10.4 后端新增命令
+- `plugins_list`：列出可用插件
+- `read_entry`：读取插件入口文件
+- `convert_with_markdown`：使用插件处理 Markdown 内容
+
+### 10.5 前置条件
+- `lib.rs` 必须完成瘦身，所有 `#[tauri::command]` 必须迁移到 `commands/` 模块
+
+---
+
+## 11. 未来扩展方向（仅框架提示）
 - 预览模式切换：单栏/折叠预览。
 - Tab 上下文菜单与历史记录。
 - 文件监听与增量刷新：后端 watch + 前端更新树。
@@ -148,6 +193,10 @@
 
 ---
 
-## 11. 维护规则
+## 12. 维护规则
 - 任何新增能力或边界变化，先更新 `product_process.md`，再同步此文档。
 - 若与 `ARCHITECTURE.md` 有冲突，以 `product_process.md` 的当前阶段决策为准并修正两者。
+- `lib.rs` 入口化规则必须严格遵守：
+  - 任何新增 `#[tauri::command]` 必须位于 `commands/` 模块
+  - 业务逻辑必须下沉至 `services/` 或其他专用模块
+  - 若未完成 commands 迁移，不允许继续往后端加插件命令
