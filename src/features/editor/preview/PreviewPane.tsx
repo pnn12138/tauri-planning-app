@@ -5,7 +5,8 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github.css";
 
-import { getTabById, openMarkdownTab, openWebTab } from "../../../entities/tab/tab.store";
+import { getTabById, openMarkdownTab } from "../../../entities/tab/tab.store";
+import { openWebTab } from "../../web/web.actions";
 import { useEditorStore } from "../editor.store";
 
 function safeLink(uri?: string) {
@@ -44,15 +45,6 @@ function resolveRelativePath(basePath: string | null, href: string) {
     resolved.push(part);
   }
   return resolved.join("/");
-}
-
-function getTabTitleFromUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname || url;
-  } catch {
-    return url;
-  }
 }
 
 class PreviewErrorBoundary extends React.Component<
@@ -114,7 +106,7 @@ export default function PreviewPane(props: { tabId: string; content: string }) {
           const basePath = currentTab?.type === "markdown" ? currentTab.filePath : null;
 
           if (isExternal) {
-            openWebTab(safeHref, { activate: !(event.ctrlKey || event.metaKey), title: getTabTitleFromUrl });
+            openWebTab(safeHref, { activate: !(event.ctrlKey || event.metaKey) });
             return;
           }
 

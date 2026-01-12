@@ -18,10 +18,6 @@ export type MarkdownTab = BaseTab & {
 export type WebTab = BaseTab & {
   type: "web";
   url: string;
-  loading: boolean;
-  error: string | null;
-  history: string[];
-  historyIndex: number;
   webviewLabel: string;
 };
 

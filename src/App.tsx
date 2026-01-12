@@ -7,9 +7,6 @@ import React, {
 } from "react";
 import Home from "./Home";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
-import { listen } from "@tauri-apps/api/event";
-import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import ExplorerPanel from "./features/explorer/ExplorerPanel";
@@ -18,14 +15,11 @@ import WebTabView from "./features/web/WebTabView";
 import { deleteEntry, renameMarkdown, scanVault } from "./features/explorer/explorer.actions";
 import { resetExplorerState, useExplorerStore } from "./features/explorer/explorer.store";
 import {
-  cancelWebTabLoadingClear,
   closeTab,
   getTabById,
   HOME_TAB_ID,
   openMarkdownTab,
-  openWebTab,
   resetTabState,
-  scheduleWebTabLoadingClear,
   setActiveTabId,
   setTabState,
   useTabStore,
@@ -37,6 +31,9 @@ import {
   setStatusMessage as setStatus,
   useStatusStore,
 } from "./shared/ui/status.store";
+import { installWebBridge } from "./features/web/bridge";
+import { goBack, goForward, navigateActiveWebTab, openWebTab, reloadWebTab } from "./features/web/web.actions";
+import { removeWebTab, useWebStore } from "./features/web/web.store";
 
 import "./App.css";
 
@@ -44,20 +41,8 @@ import type {
   ApiError,
   ApiResponse,
 } from "./shared/types/api";
-import type { MarkdownTab, WebTab } from "./entities/tab/tab.model";
+import type { MarkdownTab } from "./entities/tab/tab.model";
 import { isMarkdownTab, isWebTab } from "./entities/tab/tab.model";
-
-type WebviewStatePayload = {
-  label: string;
-  url?: string;
-  title?: string;
-  readyState?: string;
-};
-
-type WebviewOpenPayload = {
-  label: string;
-  url?: string;
-};
 
 const DEFAULT_WEB_TAB_URL = "https://example.com";
 const DEFAULT_SEARCH_URL = "https://www.google.com/search?q=";
@@ -78,15 +63,6 @@ function getVaultDisplayName(vaultRoot: string | null) {
   normalized = normalized.replace(/[\\/]+$/, "");
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? vaultRoot;
-}
-
-function getTabTitleFromUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname || url;
-  } catch (_error) {
-    return url;
-  }
 }
 
 function getFileTitle(path: string) {
@@ -123,7 +99,6 @@ function normalizeAddressInput(input: string) {
 function App() {
   const isTauriRuntime = isTauri();
   const topBarRef = useRef<HTMLDivElement | null>(null);
-  const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const [topBarHeight, setTopBarHeight] = useState(0);
   const [vaultRoot, setVaultRoot] = useState<string | null>(null);
@@ -137,8 +112,6 @@ function App() {
   const [isMaximized, setIsMaximized] = useState(false);
   const [addressInput, setAddressInput] = useState("Home");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
-  const webviewsRef = useRef<Map<string, Webview>>(new Map());
-  const creatingWebviewsRef = useRef<Set<string>>(new Set());
   const mainWindowRef = useRef<ReturnType<typeof getCurrentWindow> | null>(null);
 
   const handleTopBarMouseDown = useCallback(
@@ -169,190 +142,14 @@ function App() {
   const activeWebTab = isWebTab(activeTab) ? activeTab : null;
   const activeEditorState = activeMarkdownTab ? editorByTab[activeMarkdownTab.id] ?? null : null;
   const isSaving = Boolean(activeEditorState?.isSaving);
-  const getWebviewRect = useCallback(() => {
-    const host = webviewHostRef.current;
-    if (!host) return null;
-    const rect = host.getBoundingClientRect();
-    const width = Math.max(0, Math.round(rect.width));
-    const height = Math.max(0, Math.round(rect.height));
-    if (width === 0 || height === 0) return null;
-    return {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width,
-      height,
-    };
-  }, []);
-
-  const getWebviewPlacement = useCallback(async () => {
-    if (!isTauriRuntime) return null;
-    const rect = getWebviewRect();
-    if (!rect) return null;
-    const mainWindow = mainWindowRef.current ?? getCurrentWindow();
-    mainWindowRef.current = mainWindow;
-    const windowPosition = await mainWindow.innerPosition();
-    const position = new LogicalPosition(
-      windowPosition.x + rect.x,
-      windowPosition.y + rect.y
-    );
-    const size = new LogicalSize(rect.width, rect.height);
-    return { position, size };
-  }, [getWebviewRect, isTauriRuntime]);
-
-  const syncWebviewBounds = useCallback(async () => {
-    const placement = await getWebviewPlacement();
-    if (!placement) return;
-    for (const webview of webviewsRef.current.values()) {
-      try {
-        await webview.setPosition(placement.position);
-        await webview.setSize(placement.size);
-      } catch (error) {
-        const message = String(error);
-        if (message.includes("not found")) {
-          continue;
-        }
-        setStatusKind("error");
-        setStatus(`Webview resize failed: ${message}`);
-      }
-    }
-  }, [getWebviewPlacement]);
-
-  const createWebviewForTab = useCallback(
-    async (tab: WebTab, visible: boolean) => {
-      if (!isTauriRuntime) return;
-      if (webviewsRef.current.has(tab.id)) return;
-      if (creatingWebviewsRef.current.has(tab.id)) return;
-      creatingWebviewsRef.current.add(tab.id);
-      try {
-        const placement = await getWebviewPlacement();
-        if (!placement) {
-          requestAnimationFrame(() => {
-            void createWebviewForTab(tab, visible);
-          });
-          return;
-        }
-
-        const mainWindow = mainWindowRef.current ?? getCurrentWindow();
-        mainWindowRef.current = mainWindow;
-        const webview = new Webview(mainWindow, tab.webviewLabel, {
-          url: tab.url,
-          x: placement.position.x,
-          y: placement.position.y,
-          width: placement.size.width,
-          height: placement.size.height,
-          focus: visible,
-        });
-        webviewsRef.current.set(tab.id, webview);
-
-        await webview.once("tauri://created", () => {
-          setTabState((prev) => ({
-            ...prev,
-            tabs: prev.tabs.map((item) =>
-              item.id === tab.id && item.type === "web"
-                ? { ...item, loading: false }
-                : item
-            ),
-          }));
-        });
-        await webview.once("tauri://error", (event) => {
-          setTabState((prev) => ({
-            ...prev,
-            tabs: prev.tabs.map((item) =>
-              item.id === tab.id && item.type === "web"
-                ? {
-                    ...item,
-                    loading: false,
-                    error: "Webview failed to load.",
-                  }
-                : item
-            ),
-          }));
-          const payload = (event as { payload?: unknown }).payload;
-          setStatusKind("error");
-          setStatus(`WebviewError: ${payload ? String(payload) : "Unknown error"}`);
-        });
-
-        if (!visible) {
-          await webview.hide();
-        }
-      } finally {
-        creatingWebviewsRef.current.delete(tab.id);
-      }
-    },
-    [getWebviewPlacement, isTauriRuntime]
-  );
-
-  const recreateWebviewForTab = useCallback(
-    async (
-      tab: WebTab,
-      url: string,
-      mode: "push" | "replace" | "reload" | "back" | "forward"
-    ) => {
-      let history = tab.history;
-      let historyIndex = tab.historyIndex;
-      if (mode === "push") {
-        if (history[historyIndex] !== url) {
-          history = history.slice(0, historyIndex + 1);
-          history.push(url);
-          historyIndex = history.length - 1;
-        }
-      } else if (mode === "replace") {
-        history = [...history];
-        history[historyIndex] = url;
-      } else if (mode === "back") {
-        historyIndex = Math.max(0, historyIndex - 1);
-      } else if (mode === "forward") {
-        historyIndex = Math.min(history.length - 1, historyIndex + 1);
-      }
-
-      const nextUrl = mode === "back" || mode === "forward" ? history[historyIndex] : url;
-      const updatedTab: WebTab = {
-        ...tab,
-        url: nextUrl,
-        title: getTabTitleFromUrl(nextUrl),
-        loading: true,
-        error: null,
-        history,
-        historyIndex,
-      };
-      setTabState((prev) => ({
-        ...prev,
-        tabs: prev.tabs.map((item) => (item.id === tab.id ? updatedTab : item)),
-      }));
-      scheduleWebTabLoadingClear(tab.id, nextUrl);
-
-      const existing = webviewsRef.current.get(tab.id);
-      if (existing) {
-        try {
-          await existing.hide();
-          await existing.close();
-        } catch (error) {
-          setStatusKind("error");
-          setStatus(`Close webview failed: ${String(error)}`);
-        } finally {
-          webviewsRef.current.delete(tab.id);
-        }
-      }
-
-      await createWebviewForTab(updatedTab, tab.id === activeTabId);
-    },
-    [activeTabId, createWebviewForTab]
-  );
+  const webByTab = useWebStore((state) => state.webByTab);
+  const activeWebState = activeTab?.type === "web" ? webByTab[activeTabId] ?? null : null;
 
   const handleOpenWebTab = useCallback(
     (url: string, activate = true) => {
-      const id = openWebTab(url, { activate, title: getTabTitleFromUrl });
-      if (!id) {
-        setStatusKind("info");
-        setStatus("Only http/https links are supported.");
-        return;
-      }
-      if (!isTauriRuntime) {
-        setStatusKind("info");
-        setStatus("Web tabs require the Tauri runtime.");
-      }
+      openWebTab(url, { activate });
     },
-    [isTauriRuntime]
+    []
   );
 
   const handleOpenMarkdownTab = useCallback(
@@ -384,44 +181,32 @@ function App() {
     async (tabId: string) => {
       const tab = getTabById(tabId);
       closeTab(tabId);
-      const webview = webviewsRef.current.get(tabId);
-      if (webview) {
-        webviewsRef.current.delete(tabId);
-        try {
-          await webview.hide();
-          await webview.close();
-        } catch (error) {
-          setStatusKind("error");
-          setStatus(`Close webview failed: ${String(error)}`);
-        }
-      }
       if (tab?.type === "markdown") {
         removeEditorTab(tabId);
+      }
+      if (tab?.type === "web") {
+        removeWebTab(tabId);
       }
     },
     []
   );
 
   const handleBack = useCallback(() => {
-    if (!activeWebTab) return;
-    if (activeWebTab.historyIndex <= 0) return;
-    const target = activeWebTab.history[activeWebTab.historyIndex - 1];
-    if (!target) return;
-    void recreateWebviewForTab(activeWebTab, target, "back");
-  }, [activeWebTab, recreateWebviewForTab]);
+    if (!activeTab || activeTab.type !== "web") return;
+    if (!activeWebState?.canBack) return;
+    goBack(activeTab.id);
+  }, [activeTab, activeWebState?.canBack]);
 
   const handleForward = useCallback(() => {
-    if (!activeWebTab) return;
-    if (activeWebTab.historyIndex >= activeWebTab.history.length - 1) return;
-    const target = activeWebTab.history[activeWebTab.historyIndex + 1];
-    if (!target) return;
-    void recreateWebviewForTab(activeWebTab, target, "forward");
-  }, [activeWebTab, recreateWebviewForTab]);
+    if (!activeTab || activeTab.type !== "web") return;
+    if (!activeWebState?.canForward) return;
+    goForward(activeTab.id);
+  }, [activeTab, activeWebState?.canForward]);
 
   const handleReload = useCallback(() => {
-    if (!activeWebTab) return;
-    void recreateWebviewForTab(activeWebTab, activeWebTab.url, "reload");
-  }, [activeWebTab, recreateWebviewForTab]);
+    if (!activeTab || activeTab.type !== "web") return;
+    reloadWebTab(activeTab.id);
+  }, [activeTab]);
 
   const handleNewTab = useCallback(() => {
     handleOpenWebTab(DEFAULT_WEB_TAB_URL, true);
@@ -436,13 +221,13 @@ function App() {
         return;
       }
       setIsEditingAddress(false);
-      if (activeWebTab) {
-        void recreateWebviewForTab(activeWebTab, normalized, "push");
+      if (activeTab?.type === "web") {
+        navigateActiveWebTab(activeTab.id, normalized);
         return;
       }
       handleOpenWebTab(normalized, true);
     },
-    [activeWebTab, handleOpenWebTab, recreateWebviewForTab]
+    [activeTab, handleOpenWebTab]
   );
 
   const refreshExplorer = useCallback(
@@ -624,26 +409,9 @@ function App() {
   );
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
-    const mainWindow = getCurrentWindow();
-    mainWindowRef.current = mainWindow;
-    let unlistenResize: (() => void) | undefined;
-    let unlistenMove: (() => void) | undefined;
-    const setup = async () => {
-      unlistenResize = await mainWindow.onResized(async () => {
-        await syncWebviewBounds();
-      });
-      unlistenMove = await mainWindow.onMoved(async () => {
-        await syncWebviewBounds();
-      });
-      await syncWebviewBounds();
-    };
-    void setup();
-    return () => {
-      if (unlistenResize) unlistenResize();
-      if (unlistenMove) unlistenMove();
-    };
-  }, [isTauriRuntime, syncWebviewBounds]);
+    const cleanup = installWebBridge({ enabled: isTauriRuntime });
+    return () => cleanup();
+  }, [isTauriRuntime]);
 
   useEffect(() => {
     const updateHeight = () => {
@@ -666,99 +434,7 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isTauriRuntime) return;
-    const host = webviewHostRef.current;
-    if (!host) return;
-    const observer = new ResizeObserver(() => {
-      void syncWebviewBounds();
-    });
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [isTauriRuntime, syncWebviewBounds, activeTabId]);
 
-  useEffect(() => {
-    if (!isTauriRuntime) return;
-    void syncWebviewBounds();
-  }, [isTauriRuntime, syncWebviewBounds, topBarHeight, sidebarOpen]);
-
-  useEffect(() => {
-    if (!isTauriRuntime) return;
-    let unlisten: (() => void) | undefined;
-    const setup = async () => {
-      unlisten = await listen<WebviewStatePayload>("webview-state", (event) => {
-        const payload = event.payload;
-        if (!payload?.label) return;
-        setTabState((prev) => ({
-          ...prev,
-          tabs: prev.tabs.map((tab) => {
-            if (tab.type !== "web" || tab.webviewLabel !== payload.label) {
-              return tab;
-            }
-            const nextUrl = payload.url ?? tab.url;
-            const nextTitle = payload.title?.trim()
-              ? payload.title
-              : getTabTitleFromUrl(nextUrl);
-            let nextLoading = tab.loading;
-            if (typeof payload.readyState === "string") {
-              nextLoading = payload.readyState === "loading";
-            }
-            if (nextUrl && nextUrl !== tab.url) {
-              nextLoading = false;
-            }
-
-            if (!nextLoading) {
-              cancelWebTabLoadingClear(tab.id);
-            }
-
-            let history = tab.history;
-            let historyIndex = tab.historyIndex;
-            if (nextUrl && nextUrl !== tab.url) {
-              if (history[historyIndex - 1] === nextUrl) {
-                historyIndex -= 1;
-              } else if (history[historyIndex + 1] === nextUrl) {
-                historyIndex += 1;
-              } else {
-                history = history.slice(0, historyIndex + 1).concat(nextUrl);
-                historyIndex = history.length - 1;
-              }
-            }
-
-            return {
-              ...tab,
-              url: nextUrl,
-              title: nextTitle,
-              loading: nextLoading,
-              error: nextLoading ? tab.error : null,
-              history,
-              historyIndex,
-            };
-          }),
-        }));
-      });
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [isTauriRuntime]);
-
-  useEffect(() => {
-    if (!isTauriRuntime) return;
-    let unlisten: (() => void) | undefined;
-    const setup = async () => {
-      unlisten = await listen<WebviewOpenPayload>("webview-open", (event) => {
-        const payload = event.payload;
-        const url = typeof payload?.url === "string" ? payload.url : "";
-        if (!url) return;
-        handleOpenWebTab(url, true);
-      });
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [handleOpenWebTab, isTauriRuntime]);
 
   useEffect(() => {
     if (!isTauriRuntime) return;
@@ -786,53 +462,17 @@ function App() {
     };
   }, [isTauriRuntime]);
 
-  useEffect(() => {
-    if (!isTauriRuntime) return;
-    const run = async () => {
-      if (!webviewHostRef.current) {
-        for (const webview of webviewsRef.current.values()) {
-          await webview.hide();
-        }
-        return;
-      }
-      for (const tab of tabs) {
-        if (tab.type !== "web") continue;
-        const webview = webviewsRef.current.get(tab.id);
-        if (!webview) {
-          if (creatingWebviewsRef.current.has(tab.id)) continue;
-          await createWebviewForTab(tab, tab.id === activeTabId);
-          continue;
-        }
-        if (tab.id === activeTabId) {
-          await webview.show();
-          await webview.setFocus();
-        } else {
-          await webview.hide();
-        }
-      }
-      if (!activeWebTab) {
-        for (const webview of webviewsRef.current.values()) {
-          await webview.hide();
-        }
-      }
-    };
-    void run();
-  }, [activeTabId, activeWebTab, createWebviewForTab, isTauriRuntime, tabs]);
-
-
   const vaultDisplayName = getVaultDisplayName(vaultRoot);
-  const canGoBack = Boolean(activeWebTab && activeWebTab.historyIndex > 0);
-  const canGoForward = Boolean(
-    activeWebTab && activeWebTab.historyIndex < activeWebTab.history.length - 1
-  );
-  const canReload = Boolean(activeWebTab);
+  const canGoBack = Boolean(activeWebState?.canBack);
+  const canGoForward = Boolean(activeWebState?.canForward);
+  const canReload = Boolean(activeTab?.type === "web");
   const workspacePaddingTop = topBarHeight + 16;
-  const addressDisplayValue = activeWebTab
-    ? activeWebTab.url
+  const addressDisplayValue = activeTab?.type === "web"
+    ? activeWebState?.url ?? activeWebTab?.url ?? "about:blank"
     : activeMarkdownTab
       ? activeMarkdownTab.filePath
       : "Home";
-  const addressIsLoading = Boolean(activeWebTab?.loading);
+  const addressIsLoading = Boolean(activeWebState?.loading);
 
   useEffect(() => {
     if (isEditingAddress) return;
@@ -857,7 +497,7 @@ function App() {
                 type="button"
                 className={`ghost icon-only ${canGoBack ? "" : "is-disabled"}`}
                 onClick={() => {
-                  if (!activeWebTab) {
+                  if (activeTab?.type !== "web") {
                     setStatusKind("info");
                     setStatus("No web tab is active.");
                     return;
@@ -881,7 +521,7 @@ function App() {
                 type="button"
                 className={`ghost icon-only ${canGoForward ? "" : "is-disabled"}`}
                 onClick={() => {
-                  if (!activeWebTab) {
+                  if (activeTab?.type !== "web") {
                     setStatusKind("info");
                     setStatus("No web tab is active.");
                     return;
@@ -905,7 +545,7 @@ function App() {
                 type="button"
                 className={`ghost icon-only ${canReload ? "" : "is-disabled"}`}
                 onClick={() => {
-                  if (!activeWebTab) {
+                  if (activeTab?.type !== "web") {
                     setStatusKind("info");
                     setStatus("No web tab is active.");
                     return;
@@ -1071,7 +711,7 @@ function App() {
                 data-tauri-drag-region="false"
               >
                 <span className="tab-title">
-                  {tab.type === "web" && tab.loading
+                  {tab.type === "web" && webByTab[tab.id]?.loading
                     ? "Loading..."
                     : tab.title}
                 </span>
@@ -1167,39 +807,7 @@ function App() {
             <MarkdownTabView tabId={activeTabId} />
           )}
 
-          {activeTab?.type === "web" && (
-            <section className="webview-pane">
-              {!isTauriRuntime && (
-                <div className="placeholder">
-                  Web tabs require the Tauri runtime.
-                </div>
-              )}
-              {activeWebTab?.error && (
-                <div className="webview-error">
-                  <div className="webview-error-title">404 / Load failed</div>
-                  <div className="webview-error-body">
-                    {activeWebTab.error}
-                  </div>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => {
-                      if (!activeWebTab) return;
-                      void recreateWebviewForTab(
-                        activeWebTab,
-                        activeWebTab.url,
-                        "reload"
-                      );
-                    }}
-                    data-tauri-drag-region="false"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-              <div className="webview-host" ref={webviewHostRef} />
-            </section>
-          )}
+          <WebTabView tabId={activeTabId} />
         </main>
       </div>
 
@@ -1214,9 +822,6 @@ function App() {
         </div>
       )}
 
-      <div style={{ display: "none" }}>
-        <WebTabView />
-      </div>
     </div>
   );
 }

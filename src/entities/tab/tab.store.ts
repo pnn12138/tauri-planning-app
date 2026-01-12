@@ -10,7 +10,6 @@ export type TabState = {
 };
 
 const listeners = new Set<() => void>();
-const webTabLoadingTimeouts = new Map<string, number>();
 
 let tabIdCounter = 0;
 
@@ -49,10 +48,6 @@ export function resetTabState() {
     ],
     activeTabId: HOME_TAB_ID,
   };
-  for (const timeoutId of webTabLoadingTimeouts.values()) {
-    window.clearTimeout(timeoutId);
-  }
-  webTabLoadingTimeouts.clear();
   emitChange();
 }
 
@@ -92,12 +87,6 @@ export function updateTab(tabId: string, updater: (tab: Tab) => Tab) {
 
 export function closeTab(tabId: string) {
   if (tabId === HOME_TAB_ID) return;
-
-  const timeoutId = webTabLoadingTimeouts.get(tabId);
-  if (timeoutId) {
-    window.clearTimeout(timeoutId);
-    webTabLoadingTimeouts.delete(tabId);
-  }
 
   setTabState((prev) => {
     const nextTabs = prev.tabs.filter((tab) => tab.id !== tabId);
@@ -158,47 +147,16 @@ export function openWebTab(
     webviewLabel: `webview-${id}`,
     url,
     title: options?.title ? options.title(url) : url,
-    loading: true,
-    error: null,
-    history: [url],
-    historyIndex: 0,
   };
   addTab(tab, { activate: options?.activate !== false });
-
-  const timeoutId = window.setTimeout(() => {
-    updateTab(id, (current) => {
-      if (current.type !== "web") return current;
-      if (!current.loading) return current;
-      if (current.url !== url) return current;
-      return { ...current, loading: false, error: "Load timed out." };
-    });
-    webTabLoadingTimeouts.delete(id);
-  }, 8000);
-  webTabLoadingTimeouts.set(id, timeoutId);
 
   return id;
 }
 
-export function scheduleWebTabLoadingClear(tabId: string, url: string) {
-  const existing = webTabLoadingTimeouts.get(tabId);
-  if (existing) {
-    window.clearTimeout(existing);
-  }
-  const timeoutId = window.setTimeout(() => {
-    updateTab(tabId, (current) => {
-      if (current.type !== "web") return current;
-      if (!current.loading) return current;
-      if (current.url !== url) return current;
-      return { ...current, loading: false, error: "Load timed out." };
-    });
-    webTabLoadingTimeouts.delete(tabId);
-  }, 8000);
-  webTabLoadingTimeouts.set(tabId, timeoutId);
-}
-
-export function cancelWebTabLoadingClear(tabId: string) {
-  const existing = webTabLoadingTimeouts.get(tabId);
-  if (!existing) return;
-  window.clearTimeout(existing);
-  webTabLoadingTimeouts.delete(tabId);
+export function findWebTabByLabel(label: string) {
+  return (
+    tabState.tabs.find(
+      (tab): tab is WebTab => tab.type === "web" && tab.webviewLabel === label
+    ) ?? null
+  );
 }
