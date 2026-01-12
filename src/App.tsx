@@ -21,11 +21,17 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github.css";
 
+import ExplorerPanel from "./features/explorer/ExplorerPanel";
+import MarkdownTabView from "./features/editor/MarkdownTabView";
+import WebTabView from "./features/web/WebTabView";
+import { scanVault } from "./features/explorer/explorer.actions";
+import { resetExplorerState, useExplorerStore } from "./features/explorer/explorer.store";
+
 import "./App.css";
 
 // Debounce hook
 const useDebounce = (callback: Function, delay: number) => {
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   const debouncedCallback = useCallback(
     (...args: any[]) => {
@@ -53,26 +59,6 @@ const useDebounce = (callback: Function, delay: number) => {
 type ApiError = { code: string; message: string; details?: unknown };
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
-type FileNode = {
-  type: "dir" | "file";
-  name: string;
-  path: string;
-  mtime?: number | null;
-  children?: FileNode[];
-};
-
-type WarningItem = {
-  code: string;
-  message: string;
-  path?: string | null;
-};
-
-type ScanVaultResponse = {
-  vaultRoot: string;
-  tree: FileNode[];
-  warnings: WarningItem[];
-};
-
 type ReadMarkdownResponse = {
   path: string;
   content: string;
@@ -82,32 +68,6 @@ type ReadMarkdownResponse = {
 type WriteMarkdownResponse = {
   path: string;
   mtime?: number | null;
-};
-
-type RenameMarkdownResponse = {
-  oldPath: string;
-  newPath: string;
-  mtime?: number | null;
-};
-
-type DeleteEntryResponse = {
-  path: string;
-};
-
-type CreateEntryResponse = {
-  path: string;
-  kind: "file" | "dir";
-};
-
-type TreeContextMenuState =
-  | { x: number; y: number; type: "file"; path: string; name: string }
-  | { x: number; y: number; type: "dir"; path: string; name: string }
-  | { x: number; y: number; type: "blank"; parentPath: string };
-
-type RenameDraftState = {
-  kind: "file" | "dir";
-  path: string;
-  value: string;
 };
 
 type TabType = "home" | "markdown" | "web";
@@ -204,86 +164,6 @@ function getFileTitle(path: string) {
   return parts[parts.length - 1] ?? path;
 }
 
-function getParentDir(path: string | null) {
-  if (!path) return "";
-  const normalized = path.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length <= 1) return "";
-  return parts.slice(0, -1).join("/");
-}
-
-function isPathInDir(path: string, dir: string) {
-  if (!dir) return true;
-  return path === dir || path.startsWith(`${dir}/`);
-}
-
-function replacePathPrefix(path: string, oldPrefix: string, newPrefix: string) {
-  if (path === oldPrefix) return newPrefix;
-  if (!oldPrefix) return path;
-  if (path.startsWith(`${oldPrefix}/`)) {
-    return `${newPrefix}${path.slice(oldPrefix.length)}`;
-  }
-  return path;
-}
-
-function addExpandedDirChain(set: Set<string>, dirPath: string) {
-  const parts = dirPath.split("/").filter(Boolean);
-  let current = "";
-  for (const part of parts) {
-    current = current ? `${current}/${part}` : part;
-    set.add(current);
-  }
-}
-
-function replaceBasename(path: string, fileName: string) {
-  const parts = path.replace(/\\/g, "/").split("/");
-  parts[parts.length - 1] = fileName;
-  return parts.join("/");
-}
-
-function mergeFileTree(prevNodes: FileNode[] | null | undefined, nextNodes: FileNode[]): FileNode[] {
-  if (!prevNodes) return nextNodes;
-  const prevByPath = new Map<string, FileNode>();
-  for (const node of prevNodes) {
-    prevByPath.set(node.path, node);
-  }
-
-  return nextNodes.map((node) => {
-    const prev = prevByPath.get(node.path);
-    if (!prev) return node;
-    if (node.type !== prev.type) return node;
-
-    if (node.type === "dir") {
-      const children =
-        node.children !== undefined
-          ? mergeFileTree(prev.children, node.children)
-          : prev.children !== undefined
-            ? prev.children
-            : undefined;
-      return { ...node, children };
-    }
-
-    return node;
-  });
-}
-
-function renameNodeInTree(
-  nodes: FileNode[],
-  oldPath: string,
-  newPath: string,
-  newName: string
-): FileNode[] {
-  return nodes.map((node) => {
-    if (node.path === oldPath) {
-      return { ...node, path: newPath, name: newName };
-    }
-    if (node.children) {
-      return { ...node, children: renameNodeInTree(node.children, oldPath, newPath, newName) };
-    }
-    return node;
-  });
-}
-
 function normalizeAddressInput(input: string) {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -370,22 +250,13 @@ function App() {
   const topBarRef = useRef<HTMLDivElement | null>(null);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
-  const treeContextMenuRef = useRef<HTMLDivElement | null>(null);
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const fileTreeRef = useRef<FileNode[] | null>(null);
-  const expandedDirsRef = useRef<Set<string>>(new Set());
-  const loadingDirsRef = useRef<Set<string>>(new Set());
-  const lastActiveFileRef = useRef<string | null>(null);
   const activeMarkdownFileRef = useRef<string | null>(null);
   const [topBarHeight, setTopBarHeight] = useState(0);
   const [vaultRoot, setVaultRoot] = useState<string | null>(null);
-  const [fileTree, setFileTree] = useState<FileNode[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
   const [status, setStatus] = useState<string | null>(null);
   const [statusKind, setStatusKind] = useState<"info" | "error">("info");
-  const [warnings, setWarnings] = useState<WarningItem[]>([]);
-  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(() => new Set());
+  const warnings = useExplorerStore((state) => state.warnings);
   const [tabs, setTabs] = useState<Tab[]>([
     {
       id: HOME_TAB_ID,
@@ -398,28 +269,15 @@ function App() {
     {}
   );
   const [isSaving, setIsSaving] = useState(false);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [addressInput, setAddressInput] = useState("Home");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
-  const [lastActiveFile, setLastActiveFile] = useState<string | null>(null);
-  const [treeContextMenu, setTreeContextMenu] =
-    useState<TreeContextMenuState | null>(null);
-  const [renameDraft, setRenameDraft] = useState<RenameDraftState | null>(null);
   const readReqId = useRef(new Map<string, number>());
-  const dirScanReqId = useRef(new Map<string, number>());
   const tabIdRef = useRef(0);
   const webviewsRef = useRef<Map<string, Webview>>(new Map());
   const creatingWebviewsRef = useRef<Set<string>>(new Set());
   const webviewLoadingTimeouts = useRef<Map<string, number>>(new Map());
   const mainWindowRef = useRef<ReturnType<typeof getCurrentWindow> | null>(null);
-  const isSavingRef = useRef(false);
-  const isRenamingRef = useRef(false);
-  const isDeletingRef = useRef(false);
-  const isCreatingRef = useRef(false);
-  const isScanningRef = useRef(false);
 
   const handleTopBarMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -454,22 +312,6 @@ function App() {
   const activeWebTab = isWebTab(activeTab) ? activeTab : null;
 
   useEffect(() => {
-    fileTreeRef.current = fileTree;
-  }, [fileTree]);
-
-  useEffect(() => {
-    expandedDirsRef.current = expandedDirs;
-  }, [expandedDirs]);
-
-  useEffect(() => {
-    loadingDirsRef.current = loadingDirs;
-  }, [loadingDirs]);
-
-  useEffect(() => {
-    lastActiveFileRef.current = lastActiveFile;
-  }, [lastActiveFile]);
-
-  useEffect(() => {
     activeMarkdownFileRef.current = activeMarkdownTab?.filePath ?? null;
   }, [activeMarkdownTab]);
 
@@ -478,50 +320,6 @@ function App() {
     : null;
   const editorContent = activeEditorState?.content ?? "";
   const deferredContent = useDeferredValue(editorContent);
-
-  const findNodeMtime = useCallback(
-    (nodes: FileNode[], path: string): number | null => {
-      for (const node of nodes) {
-        if (node.path === path) {
-          return node.mtime ?? null;
-        }
-        if (node.children) {
-          const child = findNodeMtime(node.children, path);
-          if (child !== null) return child;
-        }
-      }
-      return null;
-    },
-    []
-  );
-
-  const updateDiskMtimeFromTree = useCallback(
-    (nodes: FileNode[]) => {
-      if (!activeMarkdownTab) return;
-      const latest = findNodeMtime(nodes, activeMarkdownTab.filePath);
-      if (latest === null) return;
-
-      setEditorByTab((prev) => {
-        const current = prev[activeMarkdownTab.id];
-        if (!current) return prev;
-        const next: EditorState = { ...current, diskMtime: latest };
-        if (
-          current.dirty &&
-          current.mtime !== null &&
-          latest !== current.mtime &&
-          !current.diskChangeNotified
-        ) {
-          setStatusKind("info");
-          setStatus("File changed on disk.");
-          next.diskChangeNotified = true;
-        } else if (!current.dirty || latest === current.mtime) {
-          next.diskChangeNotified = false;
-        }
-        return { ...prev, [activeMarkdownTab.id]: next };
-      });
-    },
-    [activeMarkdownTab, findNodeMtime]
-  );
   const getWebviewRect = useCallback(() => {
     const host = webviewHostRef.current;
     if (!host) return null;
@@ -745,9 +543,9 @@ function App() {
 
   const openMarkdownTab = useCallback(
     async (path: string, activate = true) => {
-      if (isSaving || isRenaming || isDeleting || isCreating) {
+      if (isSaving) {
         setStatusKind("info");
-        setStatus("File operation in progress. Please wait.");
+        setStatus("Save in progress. Please wait.");
         return;
       }
 
@@ -812,23 +610,13 @@ function App() {
             diskChangeNotified: false,
           },
         }));
-        setLastActiveFile(result.path);
-        const normalizedPath = result.path.replace(/\\/g, "/");
-        const parentPath = getParentDir(normalizedPath);
-        if (parentPath) {
-          setExpandedDirs((prev) => {
-            const next = new Set(prev);
-            addExpandedDirChain(next, parentPath);
-            return next;
-          });
-        }
       } catch (error) {
         if (readReqId.current.get(id) !== nextReqId) return;
         setStatusKind("error");
         setStatus(formatError(error));
       }
     },
-    [activeMarkdownTab, editorByTab, isCreating, isDeleting, isRenaming, isSaving, tabs]
+    [activeMarkdownTab, editorByTab, isSaving, tabs]
   );
   const handleTabClick = useCallback((tabId: string) => {
     setActiveTabId(tabId);
@@ -914,73 +702,19 @@ function App() {
     [activeWebTab, openWebTab, recreateWebviewForTab]
   );
 
-  const runScan = useCallback(
-    async (options?: { silent?: boolean; resetExpanded?: boolean; bypassBusy?: boolean }) => {
-      if (isScanningRef.current) {
-        if (!options?.silent) {
-          setStatusKind("info");
-          setStatus("Scan in progress. Please wait.");
-        }
-        return;
-      }
-      if (isSavingRef.current && !options?.bypassBusy) {
-        if (!options?.silent) {
-          setStatusKind("info");
-          setStatus("Save in progress. Please wait.");
-        }
-        return;
-      }
-      if (isRenamingRef.current && !options?.bypassBusy) {
-        if (!options?.silent) {
-          setStatusKind("info");
-          setStatus("Rename in progress. Please wait.");
-        }
-        return;
-      }
-      if (isDeletingRef.current && !options?.bypassBusy) {
-        if (!options?.silent) {
-          setStatusKind("info");
-          setStatus("Delete in progress. Please wait.");
-        }
-        return;
-      }
-      if (isCreatingRef.current && !options?.bypassBusy) {
-        if (!options?.silent) {
-          setStatusKind("info");
-          setStatus("Create in progress. Please wait.");
-        }
-        return;
-      }
+  const refreshExplorer = useCallback(
+    async (options?: { silent?: boolean; resetExpanded?: boolean }) => {
       if (!options?.silent) {
         setStatus(null);
       }
-      isScanningRef.current = true;
       try {
-        const result = await invokeApi<ScanVaultResponse>("scan_vault");
+        const result = await scanVault({ resetExpanded: options?.resetExpanded });
         setVaultRoot(result.vaultRoot);
-        let mergedTree: FileNode[] | null = null;
-        setFileTree((prev) => {
-          const base = options?.resetExpanded ? null : prev;
-          const next = mergeFileTree(base, result.tree);
-          mergedTree = next;
-          return next;
-        });
-        setWarnings(result.warnings ?? []);
-        if (options?.resetExpanded) {
-          setExpandedDirs(new Set());
-        }
-        if (mergedTree) {
-          updateDiskMtimeFromTree(mergedTree);
-        } else {
-          updateDiskMtimeFromTree(result.tree);
-        }
       } catch (error) {
-        const err = error as ApiError;
+        const err = error as { code?: string } | null;
         if (err && typeof err === "object" && err.code === "NoVaultSelected") {
           setVaultRoot(null);
-          setFileTree(null);
-          setWarnings([]);
-          setLastActiveFile(null);
+          resetExplorerState();
           setEditorByTab({});
           return;
         }
@@ -988,88 +722,28 @@ function App() {
           setStatusKind("error");
           setStatus(formatError(error));
         }
-      } finally {
-        isScanningRef.current = false;
       }
     },
-    [updateDiskMtimeFromTree]
+    []
   );
+
+  useEffect(() => {
+    void refreshExplorer({ silent: true, resetExpanded: true });
+  }, [refreshExplorer]);
 
   const handleSelectVault = useCallback(async () => {
     setStatus(null);
     try {
       const result = await invokeApi<{ vaultRoot: string }>("select_vault");
+      resetExplorerState();
       setVaultRoot(result.vaultRoot);
-      setFileTree(null);
-      setExpandedDirs(new Set());
-      setWarnings([]);
-      setLastActiveFile(null);
-      await runScan({ resetExpanded: true });
+      await refreshExplorer({ resetExpanded: true, silent: true });
       setActiveTabId(HOME_TAB_ID);
     } catch (error) {
       setStatusKind("error");
       setStatus(formatError(error));
     }
-  }, [runScan]);
-
-  const updateTree = useCallback(
-    (
-      nodes: FileNode[],
-      path: string,
-      updater: (node: FileNode) => FileNode
-    ): FileNode[] =>
-      nodes.map((node) => {
-        if (node.path === path) {
-          return updater(node);
-        }
-        if (node.children) {
-          return {
-            ...node,
-            children: updateTree(node.children, path, updater),
-          };
-        }
-        return node;
-      }),
-    []
-  );
-
-  const loadDirChildren = useCallback(
-    async (path: string) => {
-      const nextReqId = (dirScanReqId.current.get(path) ?? 0) + 1;
-      dirScanReqId.current.set(path, nextReqId);
-      setLoadingDirs((prev) => {
-        const next = new Set(prev);
-        next.add(path);
-        return next;
-      });
-      try {
-        const result = await invokeApi<ScanVaultResponse>("scan_vault", { path });
-        if (dirScanReqId.current.get(path) !== nextReqId) return;
-        setFileTree((prev) => {
-          if (!prev) return prev;
-          const next = updateTree(prev, path, (node) => ({
-            ...node,
-            children: mergeFileTree(node.children, result.tree),
-          }));
-          updateDiskMtimeFromTree(next);
-          return next;
-        });
-        if (result.warnings?.length) {
-          setWarnings((prev) => [...prev, ...result.warnings]);
-        }
-      } catch (error) {
-        setStatusKind("error");
-        setStatus(formatError(error));
-      } finally {
-        setLoadingDirs((prev) => {
-          const next = new Set(prev);
-          next.delete(path);
-          return next;
-        });
-      }
-    },
-    [updateDiskMtimeFromTree, updateTree]
-  );
+  }, [refreshExplorer]);
 
   const handleSave = useCallback(async () => {
     if (!activeMarkdownTab || !activeEditorState || isSaving) return;
@@ -1115,340 +789,6 @@ function App() {
       await openMarkdownTab(path, true);
     },
     [openMarkdownTab]
-  );
-  useEffect(() => {
-    isSavingRef.current = isSaving;
-  }, [isSaving]);
-
-  useEffect(() => {
-    isRenamingRef.current = isRenaming;
-  }, [isRenaming]);
-
-  useEffect(() => {
-    isDeletingRef.current = isDeleting;
-  }, [isDeleting]);
-
-  useEffect(() => {
-    isCreatingRef.current = isCreating;
-  }, [isCreating]);
-
-  useEffect(() => {
-    const onMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (target && treeContextMenuRef.current?.contains(target)) return;
-      if (target && renameInputRef.current?.contains(target)) return;
-      setTreeContextMenu(null);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setTreeContextMenu(null);
-      setRenameDraft(null);
-    };
-    window.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!renameDraft) return;
-    const timeoutId = window.setTimeout(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [renameDraft]);
-
-  const beginRenameFromMenu = useCallback(() => {
-    if (!treeContextMenu || treeContextMenu.type === "blank") return;
-    setRenameDraft({
-      kind: treeContextMenu.type,
-      path: treeContextMenu.path,
-      value: treeContextMenu.name,
-    });
-    setTreeContextMenu(null);
-  }, [treeContextMenu]);
-
-  const submitRenameDraft = useCallback(
-    async (draft: RenameDraftState) => {
-      if (isRenaming || isSaving || isDeleting || isCreating) return;
-      if (!isTauriRuntime) {
-        setStatusKind("error");
-        setStatus("重命名需要在 Tauri 运行时中使用。");
-        return;
-      }
-
-      const raw = draft.value.trim();
-      if (!raw || raw === "." || raw === "..") {
-        setStatusKind("error");
-        setStatus(draft.kind === "dir" ? "无效的文件夹名称。" : "无效的文件名。");
-        return;
-      }
-      if (raw.includes("/") || raw.includes("\\")) {
-        setStatusKind("error");
-        setStatus(draft.kind === "dir" ? "无效的文件夹名称。" : "无效的文件名。");
-        return;
-      }
-
-      let finalName = raw;
-      if (draft.kind === "file") {
-        if (!finalName.toLowerCase().endsWith(".md")) {
-          if (finalName.includes(".")) {
-            setStatusKind("error");
-            setStatus("只能重命名 .md 文件。");
-            return;
-          }
-          finalName = `${finalName}.md`;
-        }
-        const newPath = replaceBasename(draft.path, finalName);
-        if (newPath === draft.path) {
-          setRenameDraft(null);
-          return;
-        }
-      }
-
-      setStatus(null);
-      setIsRenaming(true);
-      try {
-        const result = await invokeApi<RenameMarkdownResponse>("rename_markdown", {
-          input: { path: draft.path, newName: finalName },
-        });
-
-        if (draft.kind === "file") {
-          let affectedTabIds: string[] = [];
-          setTabs((prev) => {
-            affectedTabIds = prev
-              .filter(
-                (tab): tab is MarkdownTab =>
-                  tab.type === "markdown" && tab.filePath === result.oldPath
-              )
-              .map((tab) => tab.id);
-            return prev.map((tab) => {
-              if (tab.type !== "markdown") return tab;
-              if (tab.filePath !== result.oldPath) return tab;
-              return {
-                ...tab,
-                filePath: result.newPath,
-                title: getFileTitle(result.newPath),
-              };
-            });
-          });
-
-          if (affectedTabIds.length > 0) {
-            setEditorByTab((prev) => {
-              const next = { ...prev };
-              for (const tabId of affectedTabIds) {
-                const current = next[tabId];
-                if (!current) continue;
-                next[tabId] = {
-                  ...current,
-                  diskMtime:
-                    typeof result.mtime === "number" ? result.mtime : current.diskMtime,
-                };
-              }
-              return next;
-            });
-          }
-
-          setLastActiveFile((prev) => (prev === result.oldPath ? result.newPath : prev));
-          setFileTree((prev) => {
-            if (!prev) return prev;
-            return renameNodeInTree(
-              prev,
-              result.oldPath,
-              result.newPath,
-              getFileTitle(result.newPath)
-            );
-          });
-        } else {
-          const oldDir = result.oldPath;
-          const newDir = result.newPath;
-          setTabs((prev) =>
-            prev.map((tab) => {
-              if (tab.type !== "markdown") return tab;
-              if (!isPathInDir(tab.filePath, oldDir)) return tab;
-              const nextPath = replacePathPrefix(tab.filePath, oldDir, newDir);
-              return {
-                ...tab,
-                filePath: nextPath,
-                title: getFileTitle(nextPath),
-              };
-            })
-          );
-
-          setLastActiveFile((prev) =>
-            prev && isPathInDir(prev, oldDir) ? replacePathPrefix(prev, oldDir, newDir) : prev
-          );
-          setExpandedDirs((prev) => {
-            const next = new Set<string>();
-            for (const dir of prev) {
-              next.add(replacePathPrefix(dir, oldDir, newDir));
-            }
-            return next;
-          });
-          await runScan({ silent: true, bypassBusy: true });
-        }
-
-        setStatusKind("info");
-        setStatus(`已重命名：${result.oldPath} -> ${result.newPath}`);
-        setRenameDraft(null);
-      } catch (error) {
-        setStatusKind("error");
-        setStatus(formatError(error));
-      } finally {
-        setIsRenaming(false);
-      }
-    },
-    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan]
-  );
-
-  const deleteFromMenu = useCallback(async () => {
-    if (!treeContextMenu || treeContextMenu.type === "blank") return;
-    if (isRenaming || isSaving || isDeleting || isCreating) return;
-    if (!isTauriRuntime) {
-      setStatusKind("error");
-      setStatus("删除需要在 Tauri 运行时中使用。");
-      return;
-    }
-
-    const name = treeContextMenu.name;
-    const targetPath = treeContextMenu.path;
-    const targetIsDir = treeContextMenu.type === "dir";
-    const isAffected = (filePath: string) =>
-      targetIsDir ? isPathInDir(filePath, targetPath) : filePath === targetPath;
-
-    const affectedMarkdownTabs = tabs.filter(
-      (tab): tab is MarkdownTab =>
-        tab.type === "markdown" && isAffected(tab.filePath)
-    );
-    const dirtyTabs = affectedMarkdownTabs.filter(
-      (tab) => editorByTab[tab.id]?.dirty
-    );
-    if (dirtyTabs.length > 0) {
-      const dirtyLinesMax = 8;
-      const dirtyLines = dirtyTabs
-        .slice(0, dirtyLinesMax)
-        .map((tab) => `- ${tab.filePath}`)
-        .join("\n");
-      const dirtyMore =
-        dirtyTabs.length > dirtyLinesMax
-          ? `\n- ... (+${dirtyTabs.length - dirtyLinesMax})`
-          : "";
-      const proceed = window.confirm(
-        `Warning: the following open files have unsaved changes. Deleting will discard them:\n${dirtyLines}${dirtyMore}\n\nContinue?`
-      );
-      if (!proceed) return;
-    }
-    const confirmed = window.confirm(
-      treeContextMenu.type === "dir"
-        ? `确认删除文件夹“${name}”及其内容吗？`
-        : `确认删除文件“${name}”吗？`
-    );
-    if (!confirmed) return;
-
-    setStatus(null);
-    setIsDeleting(true);
-    try {
-      const result = await invokeApi<DeleteEntryResponse>("delete_entry", {
-        input: { path: treeContextMenu.path },
-      });
-
-      const deletedPath = result.path;
-      const deletedIsDir = treeContextMenu.type === "dir";
-      let removedTabIds: string[] = [];
-      setTabs((prev) => {
-        const isAffected = (filePath: string) =>
-          deletedIsDir ? isPathInDir(filePath, deletedPath) : filePath === deletedPath;
-
-        removedTabIds = prev
-          .filter(
-            (tab): tab is MarkdownTab =>
-              tab.type === "markdown" && isAffected(tab.filePath)
-          )
-          .map((tab) => tab.id);
-
-        const next = prev.filter((tab) => {
-          if (tab.type !== "markdown") return true;
-          return !isAffected(tab.filePath);
-        });
-
-        if (removedTabIds.includes(activeTabId)) {
-          const currentIndex = prev.findIndex((tab) => tab.id === activeTabId);
-          const nextTab = next[currentIndex - 1] ?? next[currentIndex] ?? null;
-          setActiveTabId(nextTab ? nextTab.id : HOME_TAB_ID);
-        }
-        return next;
-      });
-      if (removedTabIds.length > 0) {
-        setEditorByTab((prev) => {
-          const next = { ...prev };
-          for (const tabId of removedTabIds) {
-            delete next[tabId];
-          }
-          return next;
-        });
-      }
-
-      setLastActiveFile((prev) => {
-        if (!prev) return prev;
-        return deletedIsDir ? (isPathInDir(prev, deletedPath) ? null : prev) : prev === deletedPath ? null : prev;
-      });
-
-      setTreeContextMenu(null);
-      setRenameDraft(null);
-      await runScan({ silent: true, bypassBusy: true });
-      setStatusKind("info");
-      setStatus(`已删除：${deletedPath}`);
-    } catch (error) {
-      setStatusKind("error");
-      setStatus(formatError(error));
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [activeTabId, editorByTab, isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, tabs, treeContextMenu]);
-
-  const createFromMenu = useCallback(
-    async (kind: "file" | "dir") => {
-      if (!treeContextMenu) return;
-      if (isRenaming || isSaving || isDeleting || isCreating) return;
-      if (!isTauriRuntime) {
-        setStatusKind("error");
-        setStatus("新建需要在 Tauri 运行时中使用。");
-        return;
-      }
-
-      setStatus(null);
-      setIsCreating(true);
-      try {
-        const parentPath = treeContextMenu.type === "blank" ? treeContextMenu.parentPath : treeContextMenu.path;
-        const result = await invokeApi<CreateEntryResponse>("create_entry", {
-          input: { parentPath, kind },
-        });
-        if (parentPath) {
-          setExpandedDirs((prev) => {
-            const next = new Set(prev);
-            addExpandedDirChain(next, parentPath);
-            return next;
-          });
-        }
-        setTreeContextMenu(null);
-        await runScan({ silent: true, bypassBusy: true });
-        // 强制重新加载父目录的子节点，确保新创建的内容显示出来
-        if (parentPath) {
-          await loadDirChildren(parentPath);
-        }
-        setStatusKind("info");
-        setStatus(kind === "dir" ? `已新建文件夹：${result.path}` : `已新建文件：${result.path}`);
-      } catch (error) {
-        setStatusKind("error");
-        setStatus(formatError(error));
-      } finally {
-        setIsCreating(false);
-      }
-    },
-    [isCreating, isDeleting, isRenaming, isSaving, isTauriRuntime, runScan, treeContextMenu, loadDirChildren]
   );
 
   useEffect(() => {
@@ -1651,18 +991,6 @@ function App() {
   }, [activeTabId, activeWebTab, createWebviewForTab, isTauriRuntime, tabs]);
 
   useEffect(() => {
-    void runScan({ silent: true, resetExpanded: true });
-  }, [runScan]);
-
-  useEffect(() => {
-    if (!vaultRoot) return;
-    const timer = window.setInterval(() => {
-      void runScan({ silent: true });
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [vaultRoot, runScan]);
-
-  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -1673,178 +1001,8 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave]);
 
-  function toggleDir(path: string, isOpen: boolean, hasChildren?: boolean) {
-    setExpandedDirs((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-    if (!isOpen && hasChildren === false) {
-      void loadDirChildren(path);
-    }
-  }
-
-  function renderTree(nodes: FileNode[], depth = 0) {
-    const highlightPath = activeMarkdownTab?.filePath ?? lastActiveFile;
-    return nodes.map((node) => {
-      if (node.type === "dir") {
-        const isOpen = expandedDirs.has(node.path);
-        const hasChildren = node.children !== undefined;
-        const isLoading = loadingDirs.has(node.path);
-        const isRenamingThisDir =
-          renameDraft?.kind === "dir" && renameDraft.path === node.path;
-        return (
-          <div key={node.path} className="tree-node">
-            {isRenamingThisDir ? (
-              <div
-                className="tree-item tree-dir is-renaming"
-                style={{ paddingLeft: `${depth * 16 + 8}px` }}
-                data-tauri-drag-region="false"
-              >
-                <span className="tree-icon">{isOpen ? "v" : ">"}</span>
-                <input
-                  ref={renameInputRef}
-                  className="tree-rename-input"
-                  value={renameDraft.value}
-                  onChange={(event) =>
-                    setRenameDraft((prev) =>
-                      prev && prev.path === node.path
-                        ? { ...prev, value: event.target.value }
-                        : prev
-                    )
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setRenameDraft(null);
-                      return;
-                    }
-                    if (event.key !== "Enter") return;
-                    event.preventDefault();
-                    if (!renameDraft) return;
-                    void submitRenameDraft(renameDraft);
-                  }}
-                  onBlur={() => setRenameDraft(null)}
-                  disabled={isSaving || isRenaming || isDeleting || isCreating}
-                />
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="tree-item tree-dir"
-                style={{ paddingLeft: `${depth * 16 + 8}px` }}
-                onClick={() => toggleDir(node.path, isOpen, hasChildren)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
-                  const menuWidth = 200;
-                  const menuHeight = 96;
-                  const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
-                  const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
-                  setTreeContextMenu({
-                    type: "dir",
-                    x,
-                    y,
-                    path: node.path,
-                    name: node.name,
-                  });
-                }}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                <span className="tree-icon">{isOpen ? "v" : ">"}</span>
-                {node.name}
-                {isLoading ? " ..." : ""}
-              </button>
-            )}
-            {isOpen && node.children && renderTree(node.children, depth + 1)}
-          </div>
-        );
-      }
-      const isRenamingThisFile =
-        renameDraft?.kind === "file" && renameDraft.path === node.path;
-      if (isRenamingThisFile) {
-        const isActive = highlightPath === node.path;
-        return (
-          <div key={node.path} className="tree-node">
-            <div
-              className={`tree-item tree-file ${isActive ? "is-active" : ""} is-renaming`}
-              style={{ paddingLeft: `${depth * 16 + 26}px` }}
-              data-tauri-drag-region="false"
-            >
-              <input
-                ref={renameInputRef}
-                className="tree-rename-input"
-                value={renameDraft.value}
-                onChange={(event) =>
-                  setRenameDraft((prev) =>
-                    prev && prev.path === node.path
-                      ? { ...prev, value: event.target.value }
-                      : prev
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setRenameDraft(null);
-                    return;
-                  }
-                  if (event.key !== "Enter") return;
-                  event.preventDefault();
-                  if (!renameDraft) return;
-                  void submitRenameDraft(renameDraft);
-                }}
-                onBlur={() => setRenameDraft(null)}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-              />
-            </div>
-          </div>
-        );
-      }
-      return (
-        <button
-          key={node.path}
-          type="button"
-          className={`tree-item tree-file ${
-            highlightPath === node.path ? "is-active" : ""
-          }`}
-          style={{ paddingLeft: `${depth * 16 + 26}px` }}
-          onClick={() => handleOpenFile(node.path)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
-            const menuWidth = 200;
-            const menuHeight = 96;
-            const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
-            const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
-            setTreeContextMenu({
-              type: "file",
-              x,
-              y,
-              path: node.path,
-              name: node.name,
-            });
-          }}
-          disabled={isSaving || isRenaming || isDeleting || isCreating}
-          data-tauri-drag-region="false"
-        >
-          {node.name}
-        </button>
-      );
-    });
-  }
-
   const editorPlaceholder = vaultRoot
     ? "Choose a markdown file to start editing."
-    : "Select a vault to load files.";
-  const sidebarPlaceholder = vaultRoot
-    ? "Scanning vault..."
     : "Select a vault to load files.";
   const vaultDisplayName = getVaultDisplayName(vaultRoot);
   const canGoBack = Boolean(activeWebTab && activeWebTab.historyIndex > 0);
@@ -1852,8 +1010,6 @@ function App() {
     activeWebTab && activeWebTab.historyIndex < activeWebTab.history.length - 1
   );
   const canReload = Boolean(activeWebTab);
-  const showSave = Boolean(activeMarkdownTab);
-  const isDirty = Boolean(activeEditorState?.dirty);
   const workspacePaddingTop = topBarHeight + 16;
   const addressDisplayValue = activeWebTab
     ? activeWebTab.url
@@ -2232,34 +1388,17 @@ function App() {
                 type="button"
                 className="vault-name-button"
                 onDoubleClick={handleSelectVault}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
+                disabled={isSaving}
                 data-tauri-drag-region="false"
               >
                 {vaultDisplayName}
               </button>
             </div>
-            <div
-              className="tree"
-              onContextMenu={(event) => {
-                event.preventDefault();
-                if (!vaultRoot) return;
-                if (isSaving || isRenaming || isDeleting || isCreating || renameDraft) return;
-                const menuWidth = 200;
-                const menuHeight = 96;
-                const x = Math.min(event.clientX, window.innerWidth - menuWidth - 8);
-                const y = Math.min(event.clientY, window.innerHeight - menuHeight - 8);
-                const currentFile = activeMarkdownTab?.filePath ?? lastActiveFile;
-                const parentPath = getParentDir(currentFile);
-                setTreeContextMenu({ type: "blank", x, y, parentPath });
-              }}
-              data-tauri-drag-region="false"
-            >
-              {fileTree ? (
-                renderTree(fileTree)
-              ) : (
-                <div className="placeholder">{sidebarPlaceholder}</div>
-              )}
-            </div>
+            <ExplorerPanel
+              vaultRoot={vaultRoot}
+              openTab={handleOpenFile}
+              activePath={activeMarkdownTab?.filePath ?? null}
+            />
           </aside>
         )}
 
@@ -2362,61 +1501,6 @@ function App() {
         </main>
       </div>
 
-      {treeContextMenu && (
-        <div
-          ref={treeContextMenuRef}
-          className="tree-context-menu"
-          style={{ left: `${treeContextMenu.x}px`, top: `${treeContextMenu.y}px` }}
-          data-tauri-drag-region="false"
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          {(treeContextMenu.type === "blank" || treeContextMenu.type === "dir") && (
-            <>
-              <button
-                type="button"
-                className="tree-context-menu-item"
-                onClick={() => void createFromMenu("file")}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                新建文件
-              </button>
-              <button
-                type="button"
-                className="tree-context-menu-item"
-                onClick={() => void createFromMenu("dir")}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                新建文件夹
-              </button>
-            </>
-          )}
-          {treeContextMenu.type === "file" || treeContextMenu.type === "dir" ? (
-            <>
-              <button
-                type="button"
-                className="tree-context-menu-item"
-                onClick={beginRenameFromMenu}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                重命名
-              </button>
-              <button
-                type="button"
-                className="tree-context-menu-item is-danger"
-                onClick={() => void deleteFromMenu()}
-                disabled={isSaving || isRenaming || isDeleting || isCreating}
-                data-tauri-drag-region="false"
-              >
-                删除
-              </button>
-            </>
-          ) : null}
-        </div>
-      )}
-
       {warnings.length > 0 && (
         <div className="warning-bar">
           {warnings.map((warning, index) => (
@@ -2427,6 +1511,11 @@ function App() {
           ))}
         </div>
       )}
+
+      <div style={{ display: "none" }}>
+        <MarkdownTabView />
+        <WebTabView />
+      </div>
     </div>
   );
 }
