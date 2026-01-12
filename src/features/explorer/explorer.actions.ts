@@ -1,6 +1,7 @@
 import { invokeBackend } from "./explorer.api";
 import { getExplorerState, setExplorerState } from "./explorer.store";
 import type { FileNode, WarningItem } from "./explorer.store";
+import { renameMarkdown as renameMarkdownApi } from "../editor/editor.api";
 
 export type ScanVaultResponse = {
   vaultRoot: string;
@@ -110,9 +111,7 @@ export async function loadDirChildren(path: string) {
 }
 
 export async function renameMarkdown(input: { path: string; newName: string }) {
-  const result = await invokeBackend<RenameMarkdownResponse>("rename_markdown", {
-    input: { path: input.path, newName: input.newName },
-  });
+  const result = await renameMarkdownApi({ path: input.path, newName: input.newName });
   await scanVault();
   return result;
 }
