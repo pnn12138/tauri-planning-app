@@ -137,14 +137,19 @@ export function openWebTab(
   inputUrl: string,
   options?: { activate?: boolean; title?: (url: string) => string }
 ) {
-  const url = inputUrl.trim();
-  if (!/^https?:\/\//i.test(url)) return null;
+  let url = inputUrl.trim();
+  // 确保URL格式正确
+  if (!url) {
+    url = "https://example.com";
+  } else if (!/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
 
   const id = `web-${Date.now()}-${tabIdCounter++}`;
   const tab: WebTab = {
     id,
     type: "web",
-    webviewLabel: `webview-${id}`,
+    webviewLabel: `webview-web-${Date.now()}-${tabIdCounter}`, // 确保webviewLabel唯一且符合预期格式
     url,
     title: options?.title ? options.title(url) : url,
   };

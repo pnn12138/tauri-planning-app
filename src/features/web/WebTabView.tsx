@@ -66,13 +66,22 @@ export default function WebTabView(props: { tabId: string }) {
   const syncWebviewBounds = useCallback(async () => {
     const placement = await getWebviewPlacement();
     if (!placement) return;
-    for (const webview of webviewsRef.current.values()) {
+    for (const [tabId, webview] of webviewsRef.current.entries()) {
       try {
-        await webview.setPosition(placement.position);
-        await webview.setSize(placement.size);
+        // 确保webview存在且可以操作
+        await webview.setPosition(placement.position).catch((error) => {
+          console.error(`Failed to set position for webview ${tabId}: ${error}`);
+        });
+        await webview.setSize(placement.size).catch((error) => {
+          console.error(`Failed to set size for webview ${tabId}: ${error}`);
+        });
       } catch (error) {
         const message = String(error);
-        if (message.includes("not found")) continue;
+        if (message.includes("not found")) {
+          // webview不存在，从映射中移除
+          webviewsRef.current.delete(tabId);
+          continue;
+        }
         setStatusKind("error");
         setStatusMessage(`Webview resize failed: ${message}`);
       }
@@ -84,11 +93,19 @@ export default function WebTabView(props: { tabId: string }) {
     if (!webview) return;
     webviewsRef.current.delete(tabId);
     try {
-      await webview.hide();
-      await webview.close();
+      // 先检查webview是否存在，然后再执行操作
+      await webview.hide().catch((error) => {
+        console.error(`Failed to hide webview: ${error}`);
+      });
+      await webview.close().catch((error) => {
+        console.error(`Failed to close webview: ${error}`);
+      });
     } catch (error) {
-      setStatusKind("error");
-      setStatusMessage(`Close webview failed: ${String(error)}`);
+      const message = String(error);
+      if (!message.includes("not found")) {
+        setStatusKind("error");
+        setStatusMessage(`Close webview failed: ${message}`);
+      }
     }
   }, []);
 
@@ -116,6 +133,8 @@ export default function WebTabView(props: { tabId: string }) {
 
         const mainWindow = mainWindowRef.current ?? getCurrentWindow();
         mainWindowRef.current = mainWindow;
+        
+        // 确保webviewLabel的唯一性和正确性
         const webview = new Webview(mainWindow, tab.webviewLabel, {
           url: desiredUrl,
           x: placement.position.x,
@@ -126,10 +145,10 @@ export default function WebTabView(props: { tabId: string }) {
         });
         webviewsRef.current.set(tabId, webview);
 
-        await webview.once("tauri://created", () => {
+        webview.once("tauri://created", () => {
           setWebLoading(tabId, false);
         });
-        await webview.once("tauri://error", (event) => {
+        webview.once("tauri://error", (event) => {
           setWebLoading(tabId, false);
           setWebError(tabId, "Webview failed to load.");
           const payload = (event as { payload?: unknown }).payload;
@@ -138,11 +157,23 @@ export default function WebTabView(props: { tabId: string }) {
         });
 
         if (!visible) {
-          await webview.hide();
+          await webview.hide().catch((error) => {
+            console.error(`Failed to hide webview: ${error}`);
+          });
         } else {
-          await webview.show();
-          await webview.setFocus();
+          await webview.show().catch((error) => {
+            console.error(`Failed to show webview: ${error}`);
+          });
+          await webview.setFocus().catch((error) => {
+            console.error(`Failed to set focus on webview: ${error}`);
+          });
         }
+      } catch (error) {
+        setWebLoading(tabId, false);
+        setWebError(tabId, "Failed to create webview.");
+        setStatusKind("error");
+        setStatusMessage(`Webview creation failed: ${String(error)}`);
+        console.error(`Error creating webview for tab ${tabId}: ${error}`);
       } finally {
         creatingRef.current.delete(tabId);
       }
@@ -202,7 +233,15 @@ export default function WebTabView(props: { tabId: string }) {
     const run = async () => {
       if (!isActiveWeb) {
         for (const webview of webviewsRef.current.values()) {
-          await webview.hide();
+          try {
+            await webview.hide();
+          } catch (error) {
+            const message = String(error);
+            if (!message.includes("not found")) {
+              setStatusKind("error");
+              setStatusMessage(`Webview hide failed: ${message}`);
+            }
+          }
         }
         return;
       }
@@ -210,11 +249,19 @@ export default function WebTabView(props: { tabId: string }) {
         if (tab.type !== "web") continue;
         const webview = webviewsRef.current.get(tab.id);
         if (!webview) continue;
-        if (tab.id === props.tabId) {
-          await webview.show();
-          await webview.setFocus();
-        } else {
-          await webview.hide();
+        try {
+          if (tab.id === props.tabId) {
+            await webview.show();
+            await webview.setFocus();
+          } else {
+            await webview.hide();
+          }
+        } catch (error) {
+          const message = String(error);
+          if (!message.includes("not found")) {
+            setStatusKind("error");
+            setStatusMessage(`Webview operation failed: ${message}`);
+          }
         }
       }
     };
@@ -240,8 +287,13 @@ export default function WebTabView(props: { tabId: string }) {
     }
     if (shouldRecreate) {
       void (async () => {
-        await closeWebview(activeTab.id);
-        await createWebviewForTab(activeTab.id, true);
+        try {
+          await closeWebview(activeTab.id);
+          await createWebviewForTab(activeTab.id, true);
+        } catch (error) {
+          setStatusKind("error");
+          setStatusMessage(`Failed to recreate webview: ${String(error)}`);
+        }
       })();
     }
   }, [activeTab, closeWebview, createWebviewForTab, isTauriRuntime, webState]);
