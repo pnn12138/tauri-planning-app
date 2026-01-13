@@ -186,6 +186,7 @@ For any file request:
 3. Ensure canonical path starts with canonical vault root
 4. If not, reject with `PathOutsideVault`
 5. If the path crosses a symlink outside the vault, reject
+6. Windows: when walking path components for symlink checks, do not probe a bare drive prefix (e.g. `C:`) as a filesystem entry.
 
 No backend command should accept arbitrary absolute paths from the frontend.
 
