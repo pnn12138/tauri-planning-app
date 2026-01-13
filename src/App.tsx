@@ -50,7 +50,7 @@ import type {
 import type { MarkdownTab } from "./entities/tab/tab.model";
 import { isMarkdownTab, isWebTab } from "./entities/tab/tab.model";
 
-const DEFAULT_WEB_TAB_URL = "https://example.com";
+const DEFAULT_WEB_TAB_URL = "https://www.google.com";
 const DEFAULT_SEARCH_URL = "https://www.google.com/search?q=";
 async function invokeApi<T>(command: string, args?: Record<string, unknown>) {
   const response = await invoke<ApiResponse<T>>(command, args);
@@ -411,6 +411,10 @@ function App() {
       await refreshExplorer({ resetExpanded: true, silent: true });
       setActiveTabId(HOME_TAB_ID);
     } catch (error) {
+      const err = error as { code?: string } | null;
+      if (err && typeof err === "object" && err.code === "SelectionCancelled") {
+        return;
+      }
       setStatusKind("error");
       setStatus(formatError(error));
     }
@@ -877,7 +881,7 @@ function App() {
               <button
                 type="button"
                 className="vault-name-button"
-                onDoubleClick={handleSelectVault}
+                onClick={handleSelectVault}
                 disabled={isSaving}
                 data-tauri-drag-region="false"
               >
