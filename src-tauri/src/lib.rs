@@ -1,5 +1,6 @@
 mod bootstrap;
 mod commands;
+mod domain;
 mod ipc;
 mod paths;
 mod repo;
@@ -12,6 +13,12 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize tracing logging system
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .init();
+    
     tauri::Builder::default()
         .setup(|app| {
             let state = bootstrap::init_vault_state(app)?;
@@ -33,7 +40,17 @@ pub fn run() {
             commands::plugins::plugins_read_entry,
             commands::plugins::plugins_set_enabled,
             commands::plugins::vault_read_text,
-            commands::plugins::vault_write_text
+            commands::plugins::vault_write_text,
+            commands::planning_cmd::planning_list_today,
+            commands::planning_cmd::planning_create_task,
+            commands::planning_cmd::planning_update_task,
+            commands::planning_cmd::planning_mark_done,
+            commands::planning_cmd::planning_reopen_task,
+            commands::planning_cmd::planning_start_task,
+            commands::planning_cmd::planning_stop_task,
+            commands::planning_cmd::planning_open_daily,
+            commands::planning_cmd::planning_open_task_note,
+            commands::planning_cmd::planning_reorder_tasks
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

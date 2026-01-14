@@ -60,6 +60,8 @@ async function invokeApi<T>(command: string, args?: Record<string, unknown>) {
   throw response.error;
 }
 
+
+
 function getVaultDisplayName(vaultRoot: string | null) {
   if (!vaultRoot) return "No vault selected";
   let normalized = vaultRoot;
@@ -900,7 +902,7 @@ function App() {
 
         <main className="content-pane">
           {activeTab?.type === "home" && (
-            <Home hasVault={!!vaultRoot} onSelectVault={handleSelectVault} />
+            <Home hasVault={!!vaultRoot} onSelectVault={handleSelectVault} vaultRoot={vaultRoot} />
           )}
 
           {activeTab?.type === "markdown" && (

@@ -1,4 +1,4 @@
-﻿# Repository Guidelines
+# Repository Guidelines
 
 ## Project Status
 - **Phase 1 DONE**: MVP core features (vault management, file tree, Markdown editing, live preview, web tabs)
@@ -56,6 +56,13 @@
 - Do not expand IPC surface or relax security boundaries without explicit approval.
 - Ensure all new Tauri commands are added to `commands/` module, not directly in `lib.rs`.
 - Follow feature-based state management; do not import stores from other features.
+- **Restriction 1**: When performing project modification tasks, do not modify library files or code not tracked by git.
+- **Restriction 2**: Use the commands from `README.md#L8-13` to start the project:
+  - `pnpm dev`: 启动前端 Vite 开发服务器。
+  - `pnpm build`: 类型检查并构建前端资源。
+  - `pnpm preview`: 本地预览构建产物。
+  - `pnpm tauri dev`: 启动 Tauri 桌面应用开发模式。
+  - `pnpm tauri build`: 构建可分发的桌面应用。
 
 ## Document Update Process
 - When making changes to the codebase, update `F_product_process.md` first to reflect the current state.

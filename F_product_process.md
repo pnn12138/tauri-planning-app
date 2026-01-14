@@ -82,13 +82,50 @@ d:\tauri\tauri-planning-app/
 
 ## Backend Code Structure (src-tauri/)
 
+### Core Files
 | File | Function |
 |------|----------|
 | `src-tauri/src/main.rs` | Entry point for the Tauri application |
-| `src-tauri/src/lib.rs` | Main Rust library with all backend logic |
+| `src-tauri/src/lib.rs` | Main Rust library with command registration |
 | `src-tauri/Cargo.toml` | Rust dependencies and build configuration |
 | `src-tauri/tauri.conf.json` | Tauri configuration file |
 | `src-tauri/capabilities/default.json` | Tauri capabilities configuration |
+
+### Command Layer (src-tauri/src/commands/)
+| File | Function |
+|------|----------|
+| `src-tauri/src/commands/mod.rs` | Command module declarations |
+| `src-tauri/src/commands/vault.rs` | Vault-related commands (select, scan, file operations) |
+| `src-tauri/src/commands/plugins.rs` | Plugin-related commands (list, read, enable/disable) |
+
+### Service Layer (src-tauri/src/services/)
+| File | Function |
+|------|----------|
+| `src-tauri/src/services/mod.rs` | Service module declarations |
+| `src-tauri/src/services/vault_service.rs` | Core vault functionality (scanning, file operations) |
+| `src-tauri/src/services/plugins_service.rs` | Plugin management (loading, manifest parsing) |
+
+### Security Layer (src-tauri/src/security/)
+| File | Function |
+|------|----------|
+| `src-tauri/src/security/mod.rs` | Security module declarations |
+| `src-tauri/src/security/path_policy.rs` | Path boundary validation and symlink checking |
+
+### Repository Layer (src-tauri/src/repo/)
+| File | Function |
+|------|----------|
+| `src-tauri/src/repo/mod.rs` | Repository module declarations |
+| `src-tauri/src/repo/settings_repo.rs` | Application settings persistence |
+| `src-tauri/src/repo/vault_repo.rs` | Vault state persistence |
+
+### Utility Files
+| File | Function |
+|------|----------|
+| `src-tauri/src/bootstrap.rs` | Application initialization and state setup |
+| `src-tauri/src/ipc.rs` | IPC communication utilities |
+| `src-tauri/src/paths.rs` | Path manipulation utilities |
+| `src-tauri/src/state.rs` | Application state management |
+| `src-tauri/src/webview_bridge.rs` | WebView communication bridge implementation |
 
 ## Modules and Implementation Details
 
@@ -155,6 +192,16 @@ d:\tauri\tauri-planning-app/
 - **Delete**: `delete_entry` command for deleting files and directories.
 - **Safety Checks**: All operations validate vault boundaries and file types.
 
+### Plugin System (Phase 2 - In Progress)
+- **Plugin Directory**: `<VAULT>/.yourapp/plugins/<pluginId>/`
+- **Loading Mechanism**: Backend scans plugin directories and loads manifest files
+- **Execution Environment**: Each plugin runs in an isolated WebWorker
+- **Command Registration**: Plugins can register commands for the Command Palette
+- **Event Subscription**: Plugins can subscribe to system events
+- **File Access**: Plugins have controlled access to vault files via dedicated API commands
+- **Permission Model**: Plugins require explicit permissions for file access
+- **Enable/Disable**: Plugins can be enabled/disabled via the UI or API
+
 ## Backend Implementation Details
 
 ### Core State Management
@@ -163,6 +210,8 @@ d:\tauri\tauri-planning-app/
 - **Default Vault**: Falls back to a default path if no vault is selected.
 
 ### API Commands
+
+#### Vault Commands
 | Command | Function |
 |---------|----------|
 | `select_vault` | Open folder picker and set vault root |
@@ -172,6 +221,16 @@ d:\tauri\tauri-planning-app/
 | `rename_markdown` | Rename file or directory |
 | `delete_entry` | Delete file or directory |
 | `create_entry` | Create new file or directory |
+
+#### Plugin Commands
+| Command | Function |
+|---------|----------|
+| `plugins_list` | List available plugins in the vault |
+| `plugins_read_manifest` | Read plugin manifest file |
+| `plugins_read_entry` | Read plugin entry file |
+| `plugins_set_enabled` | Enable or disable a plugin |
+| `vault_read_text` | Plugin-controlled read access to text files |
+| `vault_write_text` | Plugin-controlled write access to text files |
 
 ### Webview Bridge
 - **Script Injection**: Injects a bridge script into each webview to enable communication.
@@ -196,6 +255,11 @@ d:\tauri\tauri-planning-app/
 - ✅ Tabs can be closed individually.
 - ✅ URL normalization and search integration work correctly.
 - ✅ Web tab loading states are displayed.
+- ✅ Plugin system scans and lists available plugins.
+- ✅ Plugins can be enabled/disabled via the UI.
+- ✅ Plugins run in isolated WebWorker environments.
+- ✅ Plugins can register commands in the Command Palette.
+- ✅ Plugin file access is properly controlled and validated.
 
 ## Remaining Work
 - Refine web tab navigation UX for smoother transitions.
@@ -212,8 +276,10 @@ d:\tauri\tauri-planning-app/
 - **Build Tool**: Vite
 - **Editor**: CodeMirror 6
 - **Markdown Rendering**: React Markdown with GFM support
+- **Syntax Highlighting**: rehype-highlight
 - **Styling**: CSS
 - **State Management**: `useSyncExternalStore` for custom store implementation
+- **UI Components**: Custom React components
 
 ### Backend
 - **Language**: Rust
@@ -222,11 +288,21 @@ d:\tauri\tauri-planning-app/
 - **IPC**: Tauri commands and events
 - **Serialization**: Serde
 - **GUI**: Tauri WebView
+- **Async Runtime**: Tokio
+- **File Watching**: Tauri plugin
+
+### Plugin System
+- **Execution Environment**: WebWorker
+- **Isolation**: Worker-based sandboxing
+- **Communication**: Message passing between main thread and workers
+- **Permission Model**: Granular file access permissions
 
 ### Development Tools
 - **IDE**: VS Code
 - **Package Manager**: pnpm
 - **Version Control**: Git
+- **Code Quality**: TypeScript strict mode, Rust clippy
+- **Testing**: Manual verification (automated tests planned)
 
 ## Architecture Principles
 - **Backend Authoritative**: All file operations and vault state are managed by the backend.
