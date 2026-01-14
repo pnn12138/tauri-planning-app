@@ -1692,3 +1692,432 @@ button.ghost.is-danger {
   width: 100%;
   overflow: hidden;
 }
+
+/* Tags Editor Styles */
+.tags-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.tags-editor {
+  width: min(500px, 100%);
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+}
+
+.tags-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.tags-editor-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.tags-editor-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.tags-editor-close:hover {
+  background: #f3f4f6;
+}
+
+.tags-editor-content {
+  padding: 14px;
+}
+
+.tags-editor-form {
+  margin-bottom: 14px;
+}
+
+.tags-editor-form-group {
+  margin-bottom: 12px;
+}
+
+.tags-editor-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.tags-editor-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tags-editor-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tags-editor-tag-remove {
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.tags-editor-tag-remove:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tags-editor-empty {
+  color: #6b7280;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.tags-editor-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.tags-editor-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #ccd5df;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.tags-editor-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.tags-editor-add-btn {
+  padding: 6px 12px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.tags-editor-add-btn:hover {
+  background: #2563eb;
+}
+
+.tags-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #eef2f6;
+  background: #f9fafb;
+}
+
+.tags-editor-cancel-btn {
+  padding: 6px 14px;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tags-editor-cancel-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #9ca3af;
+}
+
+.tags-editor-save-btn {
+  padding: 6px 14px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.tags-editor-save-btn:hover {
+  background: #2563eb;
+}
+
+/* Status Menu */
+.status-menu {
+  position: fixed;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+  min-width: 240px;
+}
+
+.status-menu-content {
+  padding: 12px;
+}
+
+.status-menu-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.status-menu-divider {
+  height: 1px;
+  background: #eef2f6;
+  margin: 8px 0;
+}
+
+.status-menu-section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.status-menu-item {
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #374151;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.status-menu-item:hover {
+  background: #f3f4f6;
+}
+
+.status-menu-item.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 500;
+}
+
+.status-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Schedule Editor Styles */
+.schedule-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.schedule-editor {
+  width: min(500px, 100%);
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+}
+
+.schedule-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.schedule-editor-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.schedule-editor-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.schedule-editor-close:hover {
+  background: #f3f4f6;
+}
+
+.schedule-editor-content {
+  padding: 14px;
+}
+
+.schedule-editor-error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.schedule-editor-form {
+  margin-bottom: 14px;
+}
+
+.schedule-editor-form-group {
+  margin-bottom: 12px;
+}
+
+.schedule-editor-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.schedule-editor-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #ccd5df;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.schedule-editor-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.schedule-editor-notice {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.schedule-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #eef2f6;
+  background: #f9fafb;
+}
+
+.schedule-editor-cancel-btn {
+  padding: 6px 14px;
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.schedule-editor-cancel-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #9ca3af;
+}
+
+.schedule-editor-save-btn {
+  padding: 6px 14px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.schedule-editor-save-btn:hover {
+  background: #2563eb;
+}
+
+/* Task Card Drag Handle */
+.task-card-wrapper {
+  position: relative;
+}
+
+.task-card-drag-handle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  cursor: grab;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+.task-card-drag-handle:hover {
+  opacity: 1;
+}
+
+.drag-icon {
+  width: 12px;
+  height: 12px;
+  color: #6b7280;
+}

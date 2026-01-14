@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::Path;
+use rusqlite::Error as RusqliteError;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ApiError {
@@ -93,6 +94,39 @@ pub fn write_error_with_context(
             "path": path.to_string_lossy().to_string(),
             "error": err.to_string()
         })),
+    }
+}
+
+// Implement From<RusqliteError> for ApiError so that ? can automatically convert
+impl From<RusqliteError> for ApiError {
+    fn from(err: RusqliteError) -> Self {
+        ApiError {
+            code: "DatabaseError".to_string(),
+            message: format!("Database operation failed: {}", err),
+            details: Some(serde_json::json!({ "error": err.to_string() })),
+        }
+    }
+}
+
+// Implement From<std::sync::PoisonError> for ApiError so that ? can automatically convert
+impl<T> From<std::sync::PoisonError<T>> for ApiError {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        ApiError {
+            code: "MutexPoisoned".to_string(),
+            message: format!("Mutex was poisoned: {}", err),
+            details: Some(serde_json::json!({ "error": err.to_string() })),
+        }
+    }
+}
+
+// Implement From<serde_json::Error> for ApiError so that ? can automatically convert
+impl From<serde_json::Error> for ApiError {
+    fn from(err: serde_json::Error) -> Self {
+        ApiError {
+            code: "JsonError".to_string(),
+            message: format!("JSON operation failed: {}", err),
+            details: Some(serde_json::json!({ "error": err.to_string() })),
+        }
     }
 }
 

@@ -13,12 +13,21 @@
 ## 2. 当前状态
 ### Phase 1 DONE
 - MVP 核心功能完成：vault 管理、文件树浏览、Markdown 编辑、实时预览、Web 标签页
-- 架构实现：feature 模块化、IPC 封装、eventBus、command registry、dirty guard
+- 架构实现：feature 模块化、IPC 封装、command registry、dirty guard
 - 技术栈：React 19 + TypeScript + Vite + CodeMirror 6 + Tauri 2
 
-### Phase 2 NEXT
+### Phase 2 IN PROGRESS
 - **目标**：平台可扩展性与安全隔离
 - **核心功能**：Vault 内插件 + Worker 隔离 + 插件 v0
+- **已实现**：
+  - 插件目录结构与加载机制
+  - WebWorker 隔离运行环境
+  - 插件命令注册与执行
+  - 系统事件订阅机制
+  - 受控文件读写权限
+  - 插件权限管理
+  - 后端插件 API 命令
+  - 插件面板 UI
 
 ---
 
@@ -64,7 +73,10 @@
 
 ### 4.3 IPC 交互
 - 交互风格：前端通过 `invoke` 调用后端命令；后端返回统一 Envelope 结构（ok/data 或 ok/error）。
-- 命令范围（MVP）：`select_vault`、`scan_vault`、`read_markdown`、`write_markdown`。
+- 命令范围（MVP + 插件 v0）：
+  - Vault 管理：`select_vault`、`scan_vault`
+  - 文件操作：`read_markdown`、`write_markdown`、`rename_markdown`、`delete_entry`、`create_entry`
+  - 插件管理：`plugins_list`、`plugins_read_manifest`、`plugins_read_entry`、`plugins_set_enabled`、`vault_read_text`、`vault_write_text`
 
 ---
 
@@ -162,23 +174,37 @@
   - 命令注册（Command Palette）
   - 系统事件订阅（白名单）
   - 受控文件读写（vault 内）
-  - Markdown 后处理（Preview postprocess）
+  - 插件权限管理
+  - 插件启用/禁用机制
 
 ### 10.3 交付标准（DoD）
-- 插件可被扫描、加载与执行
-- 插件运行在隔离的 WebWorker 环境中
-- 插件只能访问指定的 vault 内资源
-- 插件可以注册命令并在 Command Palette 中显示
-- 插件可以订阅系统事件
-- 插件可以处理 Markdown 预览内容
+- ✅ 插件可被扫描、加载与执行
+- ✅ 插件运行在隔离的 WebWorker 环境中
+- ✅ 插件只能访问指定的 vault 内资源
+- ✅ 插件可以注册命令并在 Command Palette 中显示
+- ✅ 插件可以订阅系统事件
+- ✅ 插件可以读取/写入 vault 内文件（受控）
+- ✅ 插件可以被启用/禁用
+- ✅ 插件拥有权限管理机制
 
 ### 10.4 后端新增命令
 - `plugins_list`：列出可用插件
-- `read_entry`：读取插件入口文件
-- `convert_with_markdown`：使用插件处理 Markdown 内容
+- `plugins_read_manifest`：读取插件清单文件
+- `plugins_read_entry`：读取插件入口文件
+- `plugins_set_enabled`：启用/禁用插件
+- `vault_read_text`：插件读取文本文件（受控）
+- `vault_write_text`：插件写入文本文件（受控）
 
 ### 10.5 前置条件
-- `lib.rs` 必须完成瘦身，所有 `#[tauri::command]` 必须迁移到 `commands/` 模块
+- ✅ `lib.rs` 已完成瘦身，所有 `#[tauri::command]` 已迁移到 `commands/` 模块
+- ✅ 插件目录结构已实现
+- ✅ WebWorker 隔离环境已实现
+- ✅ 插件命令注册与执行已实现
+- ✅ 系统事件订阅机制已实现
+- ✅ 受控文件读写权限已实现
+- ✅ 插件权限管理已实现
+- ✅ 后端插件 API 命令已实现
+- ✅ 插件面板 UI 已实现
 
 ---
 

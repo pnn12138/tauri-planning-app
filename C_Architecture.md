@@ -155,19 +155,37 @@ Links (optional for MVP):
 
 ### 6.2 后端分层目录规范
 
-推荐结构：
+已实现结构：
 ```
 src-tauri/src/
-  lib.rs
-  commands/      # 仅 IPC 入口（薄）
-  services/      # 业务编排（厚）
-  security/      # 路径边界/大小限制/策略（硬）
-  repo/          # 设置持久化（读写 .yourapp/settings.json）
+  lib.rs          # 入口与命令注册（薄）
+  commands/       # IPC 入口层，按功能模块拆分
+    mod.rs        # 命令模块声明
+    vault.rs      # Vault 相关命令
+    plugins.rs    # 插件相关命令
+  services/       # 业务逻辑层，处理核心业务流程
+    mod.rs        # 服务模块声明
+    vault_service.rs  # Vault 服务（扫描、文件操作）
+    plugins_service.rs # 插件服务（加载、管理）
+  security/       # 安全策略层，执行边界校验
+    mod.rs        # 安全模块声明
+    path_policy.rs    # 路径边界校验
+  repo/           # 数据持久化层，处理配置存储
+    mod.rs        # 存储模块声明
+    settings_repo.rs  # 设置存储
+    vault_repo.rs     # Vault 状态存储
+  bootstrap.rs    # 应用初始化
+  ipc.rs          # IPC 通信工具
+  paths.rs        # 路径处理工具
+  state.rs        # 应用状态管理
+  webview_bridge.rs # WebView 桥接实现
 ```
 
 **分层约束：**
-- commands 不允许直接做文件 IO（必须调用 services）
-- services 不允许绕过 security（路径/大小限制必须统一走 security）
+- commands 层：仅处理 IPC 请求/响应序列化，调用对应 service
+- services 层：处理业务逻辑，调用 security 层进行权限校验，调用 repo 层进行数据持久化
+- security 层：执行安全策略，如路径边界校验、权限检查
+- repo 层：仅处理数据存储，不包含业务逻辑
 
 ### 6.3 Responsibilities
 Backend provides:
@@ -176,8 +194,10 @@ Backend provides:
 - Write file content by relative path
 - File operations (create, rename, delete)
 - Web tab bridge communication
+- Plugin management and execution environment
 - Enforce vault boundary for all file operations
 - Provide consistent error responses
+- Plugin permission management and isolation
 
 ### 6.4 Boundary enforcement (security)
 For any file request:
@@ -334,6 +354,116 @@ Output:
 Errors:
 - `NotFound`
 - `PermissionDenied`
+- `PathOutsideVault`
+- `WriteFailed`
+
+#### 7.2.8 `plugins_list`
+**Status**: Stable
+
+Purpose:
+- List available plugins in the vault.
+
+Input:
+- none
+
+Output:
+- `{ plugins: PluginInfo[] }`
+  - `PluginInfo`:
+    - `id: string`
+    - `name: string`
+    - `version: string`
+    - `enabled: boolean`
+    - `hasError: boolean`
+    - `error?: string`
+
+Errors:
+- `NoVaultSelected`
+- `ScanFailed`
+
+#### 7.2.9 `plugins_read_manifest`
+**Status**: Stable
+
+Purpose:
+- Read plugin manifest file.
+
+Input:
+- `{ pluginId: string }`
+
+Output:
+- `{ manifest: PluginManifest }`
+
+Errors:
+- `NotFound`
+- `NoVaultSelected`
+- `DecodeFailed`
+
+#### 7.2.10 `plugins_read_entry`
+**Status**: Stable
+
+Purpose:
+- Read plugin entry file.
+
+Input:
+- `{ pluginId: string }`
+
+Output:
+- `{ content: string }`
+
+Errors:
+- `NotFound`
+- `NoVaultSelected`
+- `DecodeFailed`
+
+#### 7.2.11 `plugins_set_enabled`
+**Status**: Stable
+
+Purpose:
+- Enable or disable a plugin.
+
+Input:
+- `{ pluginId: string, enabled: boolean }`
+
+Output:
+- `{ pluginId: string, enabled: boolean }`
+
+Errors:
+- `NotFound`
+- `NoVaultSelected`
+- `WriteFailed`
+
+#### 7.2.12 `vault_read_text`
+**Status**: Stable
+
+Purpose:
+- Read text file content (for plugins).
+
+Input:
+- `{ path: string }` (relative to vault root)
+
+Output:
+- `{ content: string }`
+
+Errors:
+- `NotFound`
+- `NoVaultSelected`
+- `PathOutsideVault`
+- `DecodeFailed`
+
+#### 7.2.13 `vault_write_text`
+**Status**: Stable
+
+Purpose:
+- Write text file content (for plugins).
+
+Input:
+- `{ path: string, content: string }` (relative to vault root)
+
+Output:
+- `{ path: string }`
+
+Errors:
+- `NotFound`
+- `NoVaultSelected`
 - `PathOutsideVault`
 - `WriteFailed`
 
