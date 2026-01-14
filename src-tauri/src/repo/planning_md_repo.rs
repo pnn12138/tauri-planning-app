@@ -86,8 +86,22 @@ impl PlanningMdRepo {
             task_id, title
         );
         
+        // Check if content already has frontmatter
+        let content_without_frontmatter = if content.starts_with("---") {
+            // Find the end of frontmatter block
+            if let Some(end_idx) = content[3..].find("---") {
+                // Extract content after frontmatter (add 6 to account for both "---" delimiters)
+                content[(end_idx + 6)..].trim_start().to_string()
+            } else {
+                // Malformed frontmatter, use full content
+                content.to_string()
+            }
+        } else {
+            content.to_string()
+        };
+        
         // Combine frontmatter and content
-        let full_content = format!("{}{}", frontmatter, content);
+        let full_content = format!("{}{}", frontmatter, content_without_frontmatter);
         
         // Write to file
         fs::write(&md_path, full_content).map_err(|e| ApiError {
@@ -119,6 +133,7 @@ impl PlanningMdRepo {
     }
     
     // Delete a task markdown file
+    #[allow(dead_code)]
     pub fn delete_task_md(&self, task_id: &str) -> Result<(), ApiError> {
         let md_path = self.get_task_md_path(task_id)?;
         

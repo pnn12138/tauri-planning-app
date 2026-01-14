@@ -106,9 +106,28 @@ export async function planningReorderTasks(tasks: ReorderTaskInput[]): Promise<v
 }
 
 // Get UI state for the current vault
-export async function planningGetUiState(vaultId: string): Promise<Record<string, any> | null> {
-  const result = await invokeApi<Record<string, any> | null>("planning_get_ui_state", { vault_id: vaultId });
-  return result;
+export async function planningGetUiState(
+  vaultId: string
+): Promise<Record<string, any> | null> {
+  const result = await invokeApi<string | null>("planning_get_ui_state", { 
+    vault_id: vaultId 
+  });
+
+  if (result == null) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(result);
+
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, any>;
+    }
+
+    console.warn("[planningGetUiState] Parsed UI state is not an object:", { vaultId, parsed });
+    return null;
+  } catch (error) {
+    console.error("[planningGetUiState] Failed to parse UI state:", { vaultId, error, result });
+    return null;
+  }
 }
 
 // Set UI state for the current vault

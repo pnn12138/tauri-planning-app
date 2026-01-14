@@ -50,7 +50,9 @@ pub fn run() {
             commands::planning_cmd::planning_stop_task,
             commands::planning_cmd::planning_open_daily,
             commands::planning_cmd::planning_open_task_note,
-            commands::planning_cmd::planning_reorder_tasks
+            commands::planning_cmd::planning_reorder_tasks,
+            commands::planning_cmd::planning_get_ui_state,
+            commands::planning_cmd::planning_set_ui_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

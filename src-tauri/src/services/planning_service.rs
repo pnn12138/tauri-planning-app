@@ -1,6 +1,6 @@
 use std::path::Path;
 use tauri::AppHandle;
-use tracing::{debug, error, info, span, warn, Level};
+use tracing::{error, info, span, Level};
 use uuid::Uuid;
 
 use crate::domain::planning::{CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput, Task, TodayDTO, UpdateTaskInput};
@@ -380,19 +380,9 @@ impl PlanningService {
             
             // If content is empty, create a new note with template
             if current_content.is_empty() {
-                // Create template content with frontmatter
-                let scheduled_start_str = match &task.scheduled_start {
-                    Some(s) => format!("\"{}\"", s),
-                    None => "null".to_string(),
-                };
-                
+                // Create template content
                 let template = format!(
-                    "---\ntask_id: \"{}\"\ntitle: \"{}\"\nstatus: \"{}\"\ncreated_at: \"{}\"\nscheduled_start: {}\n---\n\n# {}\n\n- Status: {}\n- Scheduled: {}\n",
-                    task.id,
-                    task.title,
-                    task.status,
-                    task.created_at,
-                    scheduled_start_str,
+                    "# {}\n\n- Status: {}\n- Scheduled: {}\n",
                     task.title,
                     task.status,
                     task.scheduled_start.as_ref().map_or("", |s| s)
@@ -452,11 +442,13 @@ impl PlanningService {
     }
     
     // Get UI state for the current vault
+    #[allow(dead_code)]
     pub fn get_ui_state(&self, vault_id: &str) -> Result<Option<String>, ApiError> {
         self.db_repo.get_ui_state(vault_id)
     }
     
     // Set UI state for the current vault
+    #[allow(dead_code)]
     pub fn set_ui_state(&self, vault_id: &str, partial_state_json: &str) -> Result<(), ApiError> {
         self.db_repo.set_ui_state(vault_id, partial_state_json)
     }

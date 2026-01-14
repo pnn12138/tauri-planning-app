@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState } from './features/planning/planning.store';
+import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState, saveSnapshot, rollback } from './features/planning/planning.store';
 import { planningOpenTaskNote } from './features/planning/planning.api';
 import TaskCreateModal from './features/task-create/TaskCreateModal';
 import type { Task } from './shared/types/planning';
@@ -338,7 +338,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       });
     }
     
-    // 先本地更新 UI（乐观更新）
+    // 先保存快照，然后再进行乐观更新
+    saveSnapshot();
+    
+    // 本地更新 UI（乐观更新）
     const updatedKanban = {
       ...todayData.kanban,
       [sourceColumnId]: updatedSourceTasks,
@@ -352,8 +355,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     } catch (error) {
       console.error('Failed to reorder tasks:', error);
       alert('排序更新失败，已恢复原顺序');
-      // 恢复原始数据
-      loadTodayData(yyyymmdd);
+      // 先快速回滚到快照状态
+      rollback();
+      // 再异步重拉数据确保最终一致性
+      await loadTodayData(yyyymmdd);
     }
   };
   

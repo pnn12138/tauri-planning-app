@@ -566,19 +566,12 @@ export async function openDaily(day: string) {
 
 // Reorder tasks in batch
 export async function reorderTasks(tasks: any[]) {
-  saveSnapshot();
-  
-  try {
-    await planningApi.planningReorderTasks(tasks);
-    // 后台触发一次refreshToday()兜底对齐
-    setTimeout(() => {
-      const state = getPlanningStoreState();
-      if (state.todayData) {
-        reloadTodayData(state.todayData.today);
-      }
-    }, 100);
-  } catch (error) {
-    rollback();
-    handleApiError(error, undefined, '重新排序任务');
-  }
+  await planningApi.planningReorderTasks(tasks);
+  // 后台触发一次refreshToday()兜底对齐
+  setTimeout(() => {
+    const state = getPlanningStoreState();
+    if (state.todayData) {
+      reloadTodayData(state.todayData.today);
+    }
+  }, 100);
 }

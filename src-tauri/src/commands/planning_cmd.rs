@@ -257,6 +257,7 @@ pub async fn planning_reorder_tasks(
 
 // Get UI state for the current vault
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn planning_get_ui_state(
     vault_id: String,
     vault_state: State<'_, VaultState>,
@@ -282,6 +283,7 @@ pub async fn planning_get_ui_state(
 
 // Set UI state for the current vault
 #[tauri::command]
+#[allow(dead_code)]
 pub async fn planning_set_ui_state(
     vault_id: String,
     partial_state_json: String,

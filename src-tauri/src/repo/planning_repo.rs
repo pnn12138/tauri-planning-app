@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::domain::planning::{DayLog, KanbanTasks, ReorderTaskInput, Task, TaskPriority, TaskStatus, Timer, TodayDTO};
 use crate::ipc::ApiError;
 use crate::paths::get_app_config_dir;
-use log::warn;
 
 const DB_FILENAME: &str = "planning.db";
 
@@ -731,6 +730,7 @@ impl PlanningRepo {
     }
     
     // Get UI state for a vault
+    #[allow(dead_code)]
     pub fn get_ui_state(&self, vault_id: &str) -> Result<Option<String>, ApiError> {
         let mut stmt = self.conn.prepare("SELECT state_json FROM ui_state WHERE vault_id = ?")?;
         let result = stmt.query_row([vault_id], |row| row.get(0))
@@ -740,6 +740,7 @@ impl PlanningRepo {
     }
     
     // Set UI state for a vault (merge with existing state if it exists)
+    #[allow(dead_code)]
     pub fn set_ui_state(&self, vault_id: &str, partial_state_json: &str) -> Result<(), ApiError> {
         let now = Utc::now().to_rfc3339();
         
@@ -780,6 +781,7 @@ impl PlanningRepo {
 }
 
 // Helper function to merge two JSON objects
+#[allow(dead_code)]
 fn merge_json(existing: serde_json::Value, partial: serde_json::Value) -> serde_json::Value {
     // Check if both are objects
     if existing.is_object() && partial.is_object() {
