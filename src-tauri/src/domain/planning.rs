@@ -139,6 +139,7 @@ pub struct CreateTaskInput {
     pub title: String,
     pub status: TaskStatus,
     pub estimate_min: Option<i64>,
+    pub tags: Option<Vec<String>>,
     pub scheduled_start: Option<String>,
     pub scheduled_end: Option<String>,
     pub note_path: Option<String>,

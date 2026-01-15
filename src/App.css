@@ -1067,7 +1067,7 @@ button.ghost.is-danger {
 .dashboard-main {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 /* Timeline Sidebar */
@@ -1307,7 +1307,6 @@ button.ghost.is-danger {
   display: flex;
   flex-direction: column;
   background-color: #f8fafc;
-  overflow: hidden;
 }
 
 .kanban-header {
@@ -1425,7 +1424,6 @@ button.ghost.is-danger {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .kanban-column.active {
@@ -1484,39 +1482,343 @@ button.ghost.is-danger {
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  position: relative;
+  min-height: 200px; /* 确保空列有足够的拖拽区域 */
 }
 
 .task-card {
   background-color: var(--surface);
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  margin-bottom: 0;
+}
+
+/* 拖拽占位元素 */
+.task-card-placeholder {
+  height: 80px;
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 2px dashed #3b82f6;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .task-card:hover {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  transform: translateY(-2px);
-}
-
-.task-card.blue-border {
-  border-left: 4px solid #3b82f6;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
 }
 
 .task-card.active {
-  border-color: rgba(37, 99, 235, 0.2);
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.05);
+  border-color: rgba(37, 99, 235, 0.3);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.05), 0 1px 3px 0 rgba(37, 99, 235, 0.1), 0 1px 2px 0 rgba(37, 99, 235, 0.06);
+  background-color: #ffffff;
+}
+
+.task-card.completed {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  opacity: 0.75;
+}
+
+.task-card-content {
+  padding: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: background-color 0.2s ease;
+  cursor: grab;
+}
+
+.task-card-content:hover {
+  background-color: #f8fafc;
+}
+
+.task-card-content:active {
+  cursor: grabbing;
+}
+
+/* Drag and Drop Visual Feedback */
+
+/* 确保拖拽中的卡片始终完整显示 - 只针对拖拽中的卡片 */
+.task-card-wrapper.dragging {
+  position: fixed !important;
+  z-index: 10000 !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3) !important;
+  opacity: 0.95 !important;
+  transition: all 0.1s ease !important;
+  pointer-events: none !important;
+  will-change: transform, opacity, box-shadow;
+  transform-origin: center center !important;
+  backface-visibility: hidden !important;
+  perspective: 1000px !important;
+  overflow: visible !important;
+  width: 280px !important;
+  max-width: 280px !important;
+}
+
+/* Drop target hover styles */
+.kanban-column:hover .kanban-tasks {
+  background-color: rgba(59, 130, 246, 0.05);
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+}
+
+/* 增强列拖拽目标反馈 */
+.kanban-column.dragging-over {
+  background-color: rgba(59, 130, 246, 0.05);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.kanban-column.dragging-over .kanban-tasks {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+/* 增强空列的拖拽目标识别 */
+.kanban-column .kanban-tasks {
+  position: relative;
+  overflow: visible;
+}
+
+/* 为列容器添加拖拽目标标识，增强碰撞检测 */
+.kanban-tasks::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Timeline drop zone styles */
+.timeline-hour-line {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  border-radius: 4px;
+}
+
+.timeline-hour-line:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+}
+
+/* Timeline drop target highlight */
+.timeline-hour-line.dragging-over {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+  border: 2px dashed #3b82f6 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+  padding: 8px 0;
+}
+
+/* Timeline drop target highlight for invalid drop */
+.timeline-hour-line.dragging-over-invalid {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 2px dashed #ef4444 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+  padding: 8px 0;
+}
+
+/* Timeline event placeholder during drag */
+.timeline-placeholder {
+  position: absolute;
+  top: 2px;
+  left: 8px;
+  right: 8px;
+  height: 60px;
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 2px dashed #3b82f6;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+/* Visual indicator for dragging over timeline */
+.timeline-drag-indicator {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+  z-index: 999;
+  opacity: 0.8;
+}
+
+/* Valid drop target styles */
+.dragging-over {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  border: 2px dashed #3b82f6 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+}
+
+/* Invalid drop target styles */
+.dragging-over-invalid {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+  border: 2px dashed #ef4444 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+}
+
+/* 优化任务卡片包装器，确保间距统一和拖拽稳定性 */
+.task-card-wrapper {
+  position: relative;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+  min-height: 80px; /* 确保占位符准确保持空间 */
+}
+
+/* 拖拽中卡片的视觉增强 */
+.task-card-wrapper.dragging .task-card {
+  border-color: #3b82f6;
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+/* Kanban columns overflow fix */
+.kanban-columns {
+  position: relative;
+  z-index: 1;
+}
+
+/* Timeline overflow fix */
+.timeline-content {
+  position: relative;
+  z-index: 1;
+}
+
+.task-card-footer {
+  padding: 8px 16px;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-card.completed .task-card-footer {
+  background-color: #f1f5f9;
+  border-top-color: #cbd5e1;
+}
+
+.task-card.completed .task-title {
+  text-decoration: line-through;
+  color: #94a3b8;
 }
 
 .task-tag {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: bold;
   padding: 2px 6px;
   border-radius: 4px;
+  margin-right: 6px;
   margin-bottom: 4px;
   display: inline-block;
+}
+
+.task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.task-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.task-card.active .task-title {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.task-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.task-card-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  border: 2px solid white;
+}
+
+.task-timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.task-timer-text {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.task-completed-icon {
+  color: #10b981;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Tag colors */
+.task-tag {
+  background-color: #e2e8f0;
+  color: #475569;
 }
 
 .task-tag.orange {
@@ -1544,84 +1846,14 @@ button.ghost.is-danger {
   color: #7c3aed;
 }
 
-.task-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #1e293b;
-  line-height: 1.4;
-  margin-bottom: 8px;
+.task-tag.green {
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
-.task-card.active .task-title {
-  color: #0f172a;
-  font-weight: bold;
-}
-
-.task-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #94a3b8;
-}
-
-.task-meta-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.task-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.task-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-}
-
-.task-card-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background-color: #2563eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 8px;
-  font-weight: bold;
-}
-
-.task-timer {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--primary);
-  font-weight: bold;
-  font-size: 10px;
-}
-
-.task-timer-text {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.task-status {
-  font-size: 9px;
-  color: #94a3b8;
+.task-tag.red {
+  background-color: #fee2e2;
+  color: #991b1b;
 }
 
 /* Kanban Footer */
@@ -1690,7 +1922,7 @@ button.ghost.is-danger {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 /* Tags Editor Styles */
@@ -2097,27 +2329,4 @@ button.ghost.is-danger {
   background: #2563eb;
 }
 
-/* Task Card Drag Handle */
-.task-card-wrapper {
-  position: relative;
-}
 
-.task-card-drag-handle {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  cursor: grab;
-  opacity: 0.5;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.task-card-drag-handle:hover {
-  opacity: 1;
-}
-
-.drag-icon {
-  width: 12px;
-  height: 12px;
-  color: #6b7280;
-}
