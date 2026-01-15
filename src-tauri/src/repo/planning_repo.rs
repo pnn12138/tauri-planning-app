@@ -400,7 +400,7 @@ impl PlanningRepo {
     
     // Create a new task
     pub fn create_task(&self, title: &str, status: TaskStatus, estimate_min: Option<i64>, 
-                      scheduled_start: Option<&str>, scheduled_end: Option<&str>, 
+                      tags: Option<&Vec<String>>, scheduled_start: Option<&str>, scheduled_end: Option<&str>, 
                       note_path: Option<&str>) -> Result<Task, ApiError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -414,12 +414,26 @@ impl PlanningRepo {
         
         let order_index = max_order + 1;
         
+        // Convert tags to JSON string
+        let tags_json = match tags {
+            Some(tags_vec) if !tags_vec.is_empty() => {
+                match serde_json::to_string(tags_vec) {
+                    Ok(json) => Some(json),
+                    Err(e) => {
+                        log::warn!("Failed to serialize tags: {}", e);
+                        None
+                    }
+                }
+            },
+            _ => None
+        };
+        
         self.conn.execute(
-            r#"INSERT INTO tasks (id, title, status, order_index, estimate_min, scheduled_start, scheduled_end, note_path, created_at, updated_at, archived) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"#,
+            r#"INSERT INTO tasks (id, title, status, order_index, estimate_min, scheduled_start, scheduled_end, note_path, created_at, updated_at, archived, tags) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)"#,
             params![
                 id, title, status.to_string(), order_index, estimate_min, 
-                scheduled_start, scheduled_end, note_path, now, now
+                scheduled_start, scheduled_end, note_path, now, now, tags_json
             ],
         )?;
         

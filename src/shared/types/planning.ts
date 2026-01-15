@@ -66,6 +66,7 @@ export interface CreateTaskInput {
   title: string;
   status: TaskStatus;
   estimate_min?: number;
+  tags?: string[];
   scheduled_start?: string;
   scheduled_end?: string;
   note_path?: string;

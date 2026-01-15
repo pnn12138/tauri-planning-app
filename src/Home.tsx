@@ -34,6 +34,7 @@ import {
   useSensors,
   DragStartEvent,
   DragEndEvent,
+  DragMoveEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -115,6 +116,40 @@ const getTotalScheduledHours = (tasks: Task[]): string => {
   return (totalMinutes / 60).toFixed(1);
 };
 
+// Convert time string (HH:MM) to minutes since midnight
+const timeToMinutes = (timeStr: string): number => {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+// Check if a time slot is available for a task
+const isTimeSlotAvailable = (tasks: Task[], scheduledStart: string, duration: number): boolean => {
+  const startMinutes = timeToMinutes(scheduledStart);
+  const endMinutes = startMinutes + duration;
+  
+  return !tasks.some(task => {
+    if (!task.scheduled_start || !task.estimate_min) return false;
+    
+    const taskStart = timeToMinutes(task.scheduled_start);
+    const taskEnd = taskStart + task.estimate_min;
+    
+    // Check if there's any overlap
+    return (startMinutes < taskEnd) && (endMinutes > taskStart);
+  });
+};
+
+// Throttle function to limit the rate at which a function can fire
+const throttle = <T extends (...args: any[]) => any>(func: T, limit: number): ((...args: Parameters<T>) => void) => {
+  let inThrottle: boolean;
+  return function(this: any, ...args: Parameters<T>) {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  };
+};
+
 function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const { month, day, weekday, yyyymmdd } = getCurrentDate();
   const [currentTime, setCurrentTime] = useState<string>(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
@@ -140,6 +175,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [scheduleEditorScheduledEnd, setScheduleEditorScheduledEnd] = useState<string>('');
   const [scheduleEditorError, setScheduleEditorError] = useState<string>('');
   
+  // 拖拽状态管理
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [draggingOverColumn, setDraggingOverColumn] = useState<string | null>(null);
+  const [draggingOverTimeline, setDraggingOverTimeline] = useState<string | null>(null);
+  
   // 从store获取UI状态
   const uiState = usePlanningStore(state => state.uiState);
   
@@ -162,14 +203,41 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   );
   
   // 拖拽开始处理
-  const handleDragStart = (_event: DragStartEvent) => {
+  const handleDragStart = (event: DragStartEvent) => {
     setIsDragging(true);
+    setDraggingTaskId(event.active.id as string);
+    setDraggingOverColumn(null);
+    setDraggingOverTimeline(null);
   };
+  
+  // 拖拽过程处理（使用节流优化性能，添加拖拽目标检测）
+  const handleDragMove = throttle((event: DragMoveEvent) => {
+    const { over } = event;
+    
+    if (over) {
+      if (typeof over.id === 'string' && over.id.startsWith('column:')) {
+        setDraggingOverColumn(over.id);
+        setDraggingOverTimeline(null);
+      } else if (typeof over.id === 'string' && over.id.startsWith('timeline:')) {
+        setDraggingOverTimeline(over.id);
+        setDraggingOverColumn(null);
+      } else {
+        setDraggingOverColumn(null);
+        setDraggingOverTimeline(null);
+      }
+    } else {
+      setDraggingOverColumn(null);
+      setDraggingOverTimeline(null);
+    }
+  }, 50);
   
   // 拖拽结束处理
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setIsDragging(false);
+    setDraggingTaskId(null);
+    setDraggingOverColumn(null);
+    setDraggingOverTimeline(null);
     
     // 确保拖拽目标有效
     if (!over || active.id === over.id) {
@@ -217,7 +285,105 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     // 检查 over 是否为列容器
     const isOverColumn = typeof over.id === 'string' && over.id.startsWith('column:');
     
-    if (!isOverColumn) {
+    // 检查 over 是否为时间线项目
+    const isOverTimeline = typeof over.id === 'string' && over.id.startsWith('timeline:');
+    
+    if (isOverTimeline) {
+      // 处理时间线拖拽
+      // 从 over.id 中提取时间信息，格式：timeline:HH:MM
+      if (typeof over.id === 'string') {
+        const timeStr = over.id.replace('timeline:', '');
+        
+        // 验证：检查任务是否有预估时间
+        if (!draggedTask.estimate_min) {
+          alert('请先为任务设置预估时间，再进行排期');
+          return;
+        }
+        
+        // 验证：检查时间格式
+        const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        if (!timeRegex.test(timeStr)) {
+          alert('无效的时间格式');
+          return;
+        }
+        
+        // 验证：检查时间段是否可用，避免与现有任务重叠
+        const isAvailable = isTimeSlotAvailable(todayData.timeline, timeStr, draggedTask.estimate_min);
+        if (!isAvailable) {
+          alert('该时间段已被其他任务占用，请选择其他时间段');
+          return;
+        }
+        
+        // 实现将任务添加到时间线的逻辑
+        // 1. 准备任务数据
+        const scheduledStart = `${yyyymmdd}T${timeStr}`;
+        const estimatedEnd = calculateEstimatedEnd(scheduledStart, draggedTask.estimate_min);
+        
+        // 2. 检查时间段是否被占用（基于任务时长的精确检查）
+        let hasConflict = false;
+        
+        if (todayData && todayData.timeline) {
+            const [startHour, startMinute] = timeStr.split(':').map(Number);
+            const startTotalMinutes = startHour * 60 + startMinute;
+            const endTotalMinutes = startTotalMinutes + (draggedTask.estimate_min || 0);
+            
+            hasConflict = todayData.timeline.some(task => {
+                if (!task.scheduled_start || !task.estimate_min) return false;
+                
+                const taskStart = formatTime(task.scheduled_start);
+                const [taskHour, taskMinute] = taskStart.split(':').map(Number);
+                const taskStartTotalMinutes = taskHour * 60 + taskMinute;
+                const taskEndTotalMinutes = taskStartTotalMinutes + task.estimate_min;
+                
+                // 检查时间重叠
+                return !(endTotalMinutes <= taskStartTotalMinutes || startTotalMinutes >= taskEndTotalMinutes);
+            });
+        }
+        
+        // 3. 如果有冲突，显示确认对话框
+        if (hasConflict) {
+            const confirmOverwrite = window.confirm(`该时间段已有任务，是否继续排期？`);
+            if (!confirmOverwrite) {
+                return;
+            }
+        }
+        
+        // 4. 更新任务
+        try {
+            // 将任务从原看板列中移除
+            await updateTask({
+                id: draggedTask.id,
+                status: 'todo', // 将任务状态改为todo，因为已排期
+                scheduled_start: scheduledStart,
+                scheduled_end: estimatedEnd,
+            });
+            
+            // 5. 从原列中移除任务（乐观更新）
+            const updatedSourceTasks = sourceTasks.filter(task => task.id !== draggedTask.id);
+            const updatedKanban = {
+                ...todayData.kanban,
+                [sourceColumnId]: updatedSourceTasks,
+            };
+            updateKanban(updatedKanban);
+            
+            // 6. 重新加载数据确保一致性
+            await loadTodayData(yyyymmdd);
+            
+            // 7. 保存快照
+            saveSnapshot();
+            
+            // 8. 显示成功提示
+            alert(`任务 "${draggedTask.title}" 已成功排期到 ${timeStr}`);
+        } catch (error) {
+            console.error('Failed to schedule task:', error);
+            alert(`排期失败: ${(error as Error).message}`);
+            // 回滚到快照状态
+            rollback();
+        }
+        
+        return;
+      }
+    } else if (!isOverColumn) {
       // over 是任务，获取目标列信息
       const overTaskData = over.data.current;
       if (overTaskData) {
@@ -776,6 +942,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       setNodeRef,
       transform,
       transition,
+      isDragging
     } = useSortable({
       id: task.id,
       data: {
@@ -785,32 +952,36 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     });
     
     const style = {
-      transform: CSS.Transform.toString(transform),
+      transform: transform ? CSS.Transform.toString(transform) : undefined,
       transition,
+      opacity: isDragging ? 0 : 1, // 拖拽时原位置卡片透明化
     };
     
     return (
-      <div ref={setNodeRef} style={style} {...attributes}>
-        {/* 任务卡片包装器 */}
-        <div className="task-card-wrapper">
-          {/* 拖拽句柄 - 只有点击这个区域才会触发拖拽 */}
-          <div className="task-card-drag-handle" {...listeners}>
-            {/* 拖拽指示图标 */}
-            <svg className="drag-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
+      <>
+        {/* 拖拽占位元素，保持布局稳定 */}
+        {isDragging && (
+          <div className="task-card-placeholder">
           </div>
-          {/* 任务卡片内容 - 点击这个区域不会触发拖拽 */}
-          {renderTaskCard(task)}
+        )}
+        {/* 实际拖拽卡片 */}
+        <div 
+          ref={setNodeRef} 
+          style={style} 
+          className={`task-card-wrapper ${isDragging ? 'dragging' : ''}`}
+          {...attributes}
+        >
+          {/* 任务卡片内容 - 上部区域可拖拽 */}
+          {renderTaskCard(task, listeners)}
         </div>
-      </div>
+      </>
     );
   };
   
   // Render task card
-  const renderTaskCard = (task: Task) => {
+  const renderTaskCard = (task: Task, listeners: any) => {
     const isActive = task.status === 'doing';
+    const isCompleted = task.status === 'done';
     
     // Check if this task has an active timer
     const hasActiveTimer = todayData?.currentDoing?.id === task.id;
@@ -819,59 +990,51 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     // Calculate elapsed time
     const elapsedTime = startTime ? formatElapsedTime(startTime) : '00:00:00';
     
-    // Priority badge text mapping
-    const priorityBadgeText: Record<string, string> = {
-      'high': '高',
-      'medium': '中',
-      'low': '低'
+    // Tag color mapping
+    const tagColorMap: Record<string, string> = {
+      '行政': 'orange',
+      '个人': 'indigo',
+      '设计系统': 'blue',
+      '开发': 'purple',
+      '会议': 'slate',
+      '调研': 'green',
+      'bug': 'red'
+    };
+    
+    // Get color class for tag
+    const getTagColorClass = (tag: string): string => {
+      return tagColorMap[tag] || 'slate';
     };
     
     return (
       <div 
-        className={`task-card ${isActive ? 'active' : ''} ${task.status === 'todo' ? 'blue-border' : ''}`}
+        className={`task-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
         onClick={() => handleTaskCardClick(task)}
       >
-        <div className="task-card-header">
-          <div className="task-tag">{task.status}</div>
-          {/* Priority badge */}
-          {task.priority && (
-            <div className={`task-priority-badge priority-${task.priority}`}>
-              {priorityBadgeText[task.priority]}
-            </div>
-          )}
-          {isActive && <div className="task-card-avatar">{task.title.substring(0, 2).toUpperCase()}</div>}
-          <div className="task-card-actions">
-            <button 
-              className="task-card-menu-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenStatusMenu(e, task);
-              }}
-              title="切换状态"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="1"></circle>
-                <circle cx="12" cy="5" r="1"></circle>
-                <circle cx="12" cy="19" r="1"></circle>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div className="task-title">{task.title}</div>
-        {/* Tags display */}
-        {task.tags && task.tags.length > 0 && (
-          <div className="task-tags">
-            {task.tags.slice(0, 2).map((tag, index) => (
-              <span key={index} className="task-tag-item">{tag}</span>
-            ))}
-            {task.tags.length > 2 && (
-              <span className="task-tag-more">+{task.tags.length - 2}</span>
+        {/* Main content area - 上部区域可拖拽 */}
+        <div className="task-card-content" {...listeners}>
+          <div className="task-card-header">
+            {/* Tags */}
+            {task.tags && task.tags.length > 0 ? (
+              task.tags.map((tag, index) => (
+                <span key={index} className={`task-tag ${getTagColorClass(tag)}`}>{tag}</span>
+              ))
+            ) : (
+              <span className="task-tag slate">未分类</span>
+            )}
+            {isActive && (
+              <div className="task-card-avatar">
+                {task.title.substring(0, 2).toUpperCase()}
+              </div>
             )}
           </div>
-        )}
-        <div className="task-meta">
-          {task.estimate_min && (
-            <div className="task-meta-left">
+          <h3 className="task-title">{task.title}</h3>
+        </div>
+        
+        {/* Bottom metadata area */}
+        <div className="task-card-footer">
+          <div className="task-meta">
+            {task.estimate_min && (
               <div className="task-meta-item">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
@@ -879,51 +1042,23 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 </svg>
                 {task.estimate_min}m
               </div>
-            </div>
-          )}
-          {hasActiveTimer && (
-            <div className="task-timer">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
+            )}
+            {hasActiveTimer && (
+              <div className="task-timer">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span className="task-timer-text">{elapsedTime}</span>
+              </div>
+            )}
+          </div>
+          {isCompleted && (
+            <span className="task-completed-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
-              <span className="task-timer-text">{elapsedTime}</span>
-            </div>
-          )}
-          {isActive && <span className="task-status">正在进行...</span>}
-        </div>
-        <div className="task-actions">
-          {/* 根据任务状态显示开始/停止按钮 */}
-          {!isActive && task.status !== 'done' && (
-            <button 
-              className="task-action-btn start-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleStartTask(task.id);
-              }}
-              title="开始任务"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-              开始
-            </button>
-          )}
-          {isActive && (
-            <button 
-              className="task-action-btn stop-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleStopTask(task.id);
-              }}
-              title="停止任务"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="6" y="4" width="4" height="16"></rect>
-                <rect x="14" y="4" width="4" height="16"></rect>
-              </svg>
-              停止
-            </button>
+            </span>
           )}
         </div>
       </div>
@@ -992,6 +1127,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
           
           {/* Main Content */}
           <main className="dashboard-main">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragMove={handleDragMove}
+              onDragEnd={handleDragEnd}
+            >
             {/* Timeline Sidebar */}
             <aside className={`timeline-sidebar ${uiState.layout.timelineCollapsed ? 'collapsed' : ''}`}>
               <div className="timeline-header">
@@ -1059,12 +1201,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   {/* Timeline Hours */}
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">08:00</div>
-                    <div className="timeline-hour-line"></div>
+                    <div className="timeline-hour-line" id="timeline:08:00"></div>
                   </div>
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">09:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:09:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '09:00')
                         .map(renderTimelineEvent)}
@@ -1073,7 +1215,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">10:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:10:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '10:00')
                         .map(renderTimelineEvent)}
@@ -1082,7 +1224,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">11:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:11:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '11:00')
                         .map(renderTimelineEvent)}
@@ -1091,7 +1233,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">12:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:12:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '12:00')
                         .map(renderTimelineEvent)}
@@ -1100,7 +1242,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">13:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:13:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '13:00')
                         .map(renderTimelineEvent)}
@@ -1109,7 +1251,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">14:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:14:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '14:00')
                         .map(renderTimelineEvent)}
@@ -1118,7 +1260,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">15:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:15:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '15:00')
                         .map(renderTimelineEvent)}
@@ -1127,7 +1269,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   
                   <div className="timeline-hour">
                     <div className="timeline-hour-time">16:00</div>
-                    <div className="timeline-hour-line">
+                    <div className="timeline-hour-line" id="timeline:16:00">
                       {todayData && todayData.timeline
                         .filter(task => formatTime(task.scheduled_start) === '16:00')
                         .map(renderTimelineEvent)}
@@ -1226,15 +1368,19 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 )}
               </div>
               
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-              >
+
+                <SortableContext 
+                  items={[
+                    ...getFilteredTasks().backlog.map(task => task.id),
+                    ...getFilteredTasks().todo.map(task => task.id),
+                    ...getFilteredTasks().doing.map(task => task.id),
+                    ...getFilteredTasks().done.map(task => task.id)
+                  ]} 
+                  strategy={verticalListSortingStrategy}
+                >
                 <div className="kanban-columns">
                   {/* Backlog */}
-                  <div className="kanban-column">
+                  <div className="kanban-column" id="column:backlog">
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">待排期</span>
@@ -1249,8 +1395,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </svg>
                       </button>
                     </div>
-                    <div className="kanban-tasks" id="column:backlog">
-                      <SortableContext items={getFilteredTasks().backlog.map(task => task.id)} strategy={verticalListSortingStrategy}>
+                    <div className="kanban-tasks">
                         {isLoading ? (
                           <div className="loading-message">加载中...</div>
                         ) : error ? (
@@ -1269,12 +1414,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         ) : (
                           <div className="empty-message">暂无任务</div>
                         )}
-                      </SortableContext>
                     </div>
                   </div>
                   
                   {/* To Do */}
-                  <div className="kanban-column">
+                  <div className="kanban-column" id="column:todo">
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">待做</span>
@@ -1289,8 +1433,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </svg>
                       </button>
                     </div>
-                    <div className="kanban-tasks" id="column:todo">
-                      <SortableContext items={getFilteredTasks().todo.map(task => task.id)} strategy={verticalListSortingStrategy}>
+                    <div className="kanban-tasks">
                         {isLoading ? (
                           <div className="loading-message">加载中...</div>
                         ) : error ? (
@@ -1309,12 +1452,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         ) : (
                           <div className="empty-message">暂无任务</div>
                         )}
-                      </SortableContext>
                     </div>
                   </div>
                   
                   {/* In Progress */}
-                  <div className="kanban-column active">
+                  <div className="kanban-column active" id="column:doing">
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">进行中</span>
@@ -1323,8 +1465,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </span>
                       </div>
                     </div>
-                    <div className="kanban-tasks" id="column:doing">
-                      <SortableContext items={getFilteredTasks().doing.map(task => task.id)} strategy={verticalListSortingStrategy}>
+                    <div className="kanban-tasks">
                         {isLoading ? (
                           <div className="loading-message">加载中...</div>
                         ) : error ? (
@@ -1343,12 +1484,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         ) : (
                           <div className="empty-message">暂无任务</div>
                         )}
-                      </SortableContext>
                     </div>
                   </div>
                   
                   {/* Completed */}
-                  <div className="kanban-column">
+                  <div className="kanban-column" id="column:done">
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">已完成</span>
@@ -1357,8 +1497,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </span>
                       </div>
                     </div>
-                    <div className="kanban-tasks" id="column:done">
-                      <SortableContext items={getFilteredTasks().done.map(task => task.id)} strategy={verticalListSortingStrategy}>
+                    <div className="kanban-tasks">
                         {isLoading ? (
                           <div className="loading-message">加载中...</div>
                         ) : error ? (
@@ -1377,11 +1516,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         ) : (
                           <div className="empty-message">暂无任务</div>
                         )}
-                      </SortableContext>
                     </div>
                   </div>
                 </div>
-              </DndContext>
+                </SortableContext>
               
               <div className="kanban-footer">
                 <p className="kanban-footer-text">
@@ -1392,6 +1530,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 </p>
               </div>
             </section>
+            </DndContext>
           </main>
         </div>
       </section>

@@ -58,6 +58,7 @@ impl PlanningService {
             &input.title,
             input.status,
             input.estimate_min,
+            input.tags.as_ref().map(|tags| tags.as_ref()),
             input.scheduled_start.as_deref(),
             input.scheduled_end.as_deref(),
             input.note_path.as_deref(),
@@ -381,12 +382,23 @@ impl PlanningService {
             // If content is empty, create a new note with template
             if current_content.is_empty() {
                 // Create template content
-                let template = format!(
-                    "# {}\n\n- Status: {}\n- Scheduled: {}\n",
+                let mut template = format!(
+                    "# {}\n\n- Status: {}\n",
                     task.title,
-                    task.status,
-                    task.scheduled_start.as_ref().map_or("", |s| s)
+                    task.status
                 );
+                
+                // Add tags if they exist
+                if let Some(tags) = &task.tags {
+                    if !tags.is_empty() {
+                        template.push_str(&format!("- Tags: {}\n", tags.join(", ")));
+                    }
+                }
+                
+                // Add scheduled time if it exists
+                if let Some(scheduled) = &task.scheduled_start {
+                    template.push_str(&format!("- Scheduled: {}\n", scheduled));
+                }
                 
                 // Write template to file
                 self.md_repo.upsert_task_md(&task.id, &task.title, &template)?;
