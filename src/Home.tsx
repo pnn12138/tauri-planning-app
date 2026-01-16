@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState, saveSnapshot, rollback } from './features/planning/planning.store';
+﻿import { useEffect, useRef, useState } from 'react';
+import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState, saveSnapshot, rollback, getTaskById } from './features/planning/planning.store';
 import { planningOpenTaskNote } from './features/planning/planning.api';
 import TaskCreateModal from './features/task-create/TaskCreateModal';
 import type { Task } from './shared/types/planning';
@@ -112,6 +112,11 @@ const calculateEstimatedEnd = (scheduledStart: string | undefined, estimateMin: 
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const toDatetimeLocalInput = (value: string | undefined): string => {
+  if (!value) return '';
+  return value.slice(0, 16);
+};
+
 // Get total scheduled hours for today
 const getTotalScheduledHours = (tasks: Task[]): string => {
   const totalMinutes = tasks.reduce((sum, task) => {
@@ -166,6 +171,19 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   
+  // 任务编辑模态框状态
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editStatus, setEditStatus] = useState<Task['status']>('backlog');
+  const [editPriority, setEditPriority] = useState<Task['priority'] | ''>('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editEstimateMin, setEditEstimateMin] = useState('');
+  const [editScheduledStart, setEditScheduledStart] = useState('');
+  const [editScheduledEnd, setEditScheduledEnd] = useState('');
+  const [editTagsInput, setEditTagsInput] = useState('');
+  
   // Tags editor related state
   const [isTagsEditorOpen, setIsTagsEditorOpen] = useState(false);
   const [editingTagsTask, setEditingTagsTask] = useState<Task | null>(null);
@@ -188,6 +206,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const lastOverIdRef = useRef<string | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const lastDragRectRef = useRef<DOMRect | null>(null);
+  const clickTimerRef = useRef<number | null>(null);
 
   const getColumnIdFromPoint = (x: number, y: number): string | null => {
     const elements = document.elementsFromPoint(x, y);
@@ -641,6 +660,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   
   // 任务状态菜单处理
   const handleOpenStatusMenu = (e: React.MouseEvent, task: Task) => {
+    e.preventDefault();
     e.stopPropagation();
     setSelectedTask(task);
     setMenuPosition({ x: e.clientX, y: e.clientY });
@@ -650,6 +670,72 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const handleCloseStatusMenu = () => {
     setIsStatusMenuOpen(false);
     setSelectedTask(null);
+  };
+
+  const handleOpenEditModal = (task: Task) => {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditDescription(task.description ?? '');
+    setEditStatus(task.status);
+    setEditPriority(task.priority ?? '');
+    setEditDueDate(task.due_date ?? '');
+    setEditEstimateMin(task.estimate_min ? String(task.estimate_min) : '');
+    setEditScheduledStart(toDatetimeLocalInput(task.scheduled_start));
+    setEditScheduledEnd(toDatetimeLocalInput(task.scheduled_end));
+    const tagList = task.tags ?? task.labels ?? [];
+    setEditTagsInput(tagList.join(', '));
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
+    setEditingTask(null);
+  };
+
+  const handleSaveEditModal = async () => {
+    if (!editingTask) return;
+    const nextTitle = editTitle.trim();
+    if (!nextTitle) {
+      alert('任务标题不能为空');
+      return;
+    }
+    if ((editStatus === 'todo' || editStatus === 'doing') && !editDueDate) {
+      alert('待做/进行中任务需要设置截止日期');
+      return;
+    }
+    const parsedEstimate = editEstimateMin ? Number(editEstimateMin) : undefined;
+    if (editEstimateMin && (!Number.isFinite(parsedEstimate) || parsedEstimate <= 0)) {
+      alert('预计时间需为正整数');
+      return;
+    }
+    const tags = editTagsInput
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
+    try {
+      await updateTask({
+        id: editingTask.id,
+        title: nextTitle,
+        description: editDescription.trim() || undefined,
+        status: editStatus,
+        priority: editPriority || undefined,
+        due_date: editDueDate ? editDueDate : null,
+        estimate_min: parsedEstimate,
+        scheduled_start: editScheduledStart || undefined,
+        scheduled_end: editScheduledEnd || undefined,
+        tags,
+      });
+      handleCloseEditModal();
+    } catch (error) {
+      console.error('更新任务失败:', error);
+      alert(`更新任务失败: ${(error as Error).message}`);
+    }
+  };
+
+  const handleOpenEditFromMenu = () => {
+    if (!selectedTask) return;
+    handleOpenEditModal(selectedTask);
+    handleCloseStatusMenu();
   };
   
   // 点击页面其他地方关闭菜单
@@ -665,16 +751,27 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       };
     }
   }, [isStatusMenuOpen]);
-  
-  // 切换任务状态
+  // Change task status
   const handleChangeTaskStatus = async (newStatus: Task['status']) => {
     if (!selectedTask) return;
     
     try {
-      await updateTask({
-        id: selectedTask.id,
-        status: newStatus,
-      });
+      if ((newStatus === 'todo' || newStatus === 'doing') && !selectedTask.due_date) {
+        const input = window.prompt('Enter due date (YYYY-MM-DD)');
+        if (!input) {
+          return;
+        }
+        await updateTask({
+          id: selectedTask.id,
+          status: newStatus,
+          due_date: input,
+        });
+      } else {
+        await updateTask({
+          id: selectedTask.id,
+          status: newStatus,
+        });
+      }
       handleCloseStatusMenu();
     } catch (error) {
       console.error('更新任务状态失败:', error);
@@ -705,6 +802,17 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   // 开始任务
   const handleStartTask = async (taskId: string) => {
     try {
+      const task = getTaskById(taskId);
+      if (task && !task.due_date) {
+        const input = window.prompt('Enter due date (YYYY-MM-DD)');
+        if (!input) {
+          return;
+        }
+        await updateTask({
+          id: taskId,
+          due_date: input,
+        });
+      }
       await startTask(taskId);
     } catch (error) {
       console.error('开始任务失败:', error);
@@ -998,17 +1106,31 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     );
   };
   
-  // Handle task card click to open note
-  const handleTaskCardClick = async (task: Task) => {
-    try {
-      const result = await planningOpenTaskNote(task.id);
-      console.log('Task note opened:', result.mdPath);
-      // 这里假设已经有一个函数可以打开Markdown文件
-      // 实际项目中应该调用现有的打开文件机制
-    } catch (error) {
-      console.error('Failed to open task note:', error);
-      alert(`打开任务笔记失败: ${(error as Error).message}`);
+  // Handle task card click to open note (debounced to allow double click)
+  const handleTaskCardClick = (task: Task) => {
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current);
     }
+    clickTimerRef.current = window.setTimeout(async () => {
+      clickTimerRef.current = null;
+      try {
+        const result = await planningOpenTaskNote(task.id);
+        console.log('Task note opened:', result.mdPath);
+        // 这里假设已经有一个函数可以打开Markdown文件
+        // 实际项目中应该调用现有的打开文件机制
+      } catch (error) {
+        console.error('Failed to open task note:', error);
+        alert(`打开任务笔记失败: ${(error as Error).message}`);
+      }
+    }, 220);
+  };
+
+  const handleTaskCardDoubleClick = (task: Task) => {
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    handleOpenEditModal(task);
   };
 
   // 自定义 SortableItem 组件，用于包装任务卡片，使其支持拖拽
@@ -1058,6 +1180,8 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     // Calculate elapsed time
     const elapsedTime = startTime ? formatElapsedTime(startTime) : '00:00:00';
     
+    const tagList = task.labels ?? task.tags;
+
     // Tag color mapping
     const tagColorMap: Record<string, string> = {
       '行政': 'orange',
@@ -1078,17 +1202,22 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       <div 
         className={`task-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
         onClick={() => handleTaskCardClick(task)}
+        onDoubleClick={() => handleTaskCardDoubleClick(task)}
+        onContextMenu={(event) => handleOpenStatusMenu(event, task)}
       >
         {/* Main content area - 上部区域可拖拽 */}
         <div className="task-card-content" {...listeners}>
           <div className="task-card-header">
             {/* Tags */}
-            {task.tags && task.tags.length > 0 ? (
-              task.tags.map((tag, index) => (
+            {task.priority && (
+              <span className={`task-priority ${task.priority}`}>{task.priority.toUpperCase()}</span>
+            )}
+            {tagList && tagList.length > 0 ? (
+              tagList.map((tag, index) => (
                 <span key={index} className={`task-tag ${getTagColorClass(tag)}`}>{tag}</span>
               ))
             ) : (
-              <span className="task-tag slate">未分类</span>
+              <span className="task-tag slate">Unlabeled</span>
             )}
             {isActive && (
               <div className="task-card-avatar">
@@ -1659,6 +1788,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
             {/* 显示任务标题 */}
             <div className="status-menu-title">{selectedTask.title}</div>
             <div className="status-menu-divider"></div>
+            <button 
+              className="status-menu-item"
+              onClick={handleOpenEditFromMenu}
+            >
+              编辑任务
+            </button>
+            <div className="status-menu-divider"></div>
             
             {/* 根据当前状态显示可用选项 */}
             {selectedTask.status === 'backlog' && (
@@ -1783,6 +1919,137 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
             >
               编辑排程
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 任务编辑模态框 */}
+      {isEditModalOpen && editingTask && (
+        <div
+          className="task-edit-modal-overlay modal open"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              handleCloseEditModal();
+            }
+          }}
+        >
+          <div className="task-edit-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="task-edit-modal-header">
+              <div className="task-edit-modal-title">编辑任务</div>
+              <button className="task-edit-modal-close" onClick={handleCloseEditModal} aria-label="关闭">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div className="task-edit-modal-body">
+              <div className="task-edit-form-group">
+                <label>任务标题</label>
+                <input
+                  className="task-edit-input"
+                  type="text"
+                  value={editTitle}
+                  onChange={(event) => setEditTitle(event.target.value)}
+                />
+              </div>
+              <div className="task-edit-form-group">
+                <label>任务描述</label>
+                <textarea
+                  className="task-edit-textarea"
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  rows={4}
+                />
+              </div>
+              <div className="task-edit-row">
+                <div className="task-edit-form-group">
+                  <label>状态</label>
+                  <select
+                    className="task-edit-select"
+                    value={editStatus}
+                    onChange={(event) => setEditStatus(event.target.value as Task['status'])}
+                  >
+                    <option value="backlog">待排期</option>
+                    <option value="todo">待做</option>
+                    <option value="doing">进行中</option>
+                    <option value="done">已完成</option>
+                  </select>
+                </div>
+                <div className="task-edit-form-group">
+                  <label>优先级</label>
+                  <select
+                    className="task-edit-select"
+                    value={editPriority}
+                    onChange={(event) => setEditPriority(event.target.value as Task['priority'] | '')}
+                  >
+                    <option value="">无</option>
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                  </select>
+                </div>
+              </div>
+              <div className="task-edit-row">
+                <div className="task-edit-form-group">
+                  <label>截止日期</label>
+                  <input
+                    className="task-edit-input"
+                    type="date"
+                    value={editDueDate}
+                    onChange={(event) => setEditDueDate(event.target.value)}
+                  />
+                </div>
+                <div className="task-edit-form-group">
+                  <label>预计时间（分钟）</label>
+                  <input
+                    className="task-edit-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editEstimateMin}
+                    onChange={(event) => setEditEstimateMin(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="task-edit-row">
+                <div className="task-edit-form-group">
+                  <label>开始时间</label>
+                  <input
+                    className="task-edit-input"
+                    type="datetime-local"
+                    value={editScheduledStart}
+                    onChange={(event) => setEditScheduledStart(event.target.value)}
+                  />
+                </div>
+                <div className="task-edit-form-group">
+                  <label>结束时间</label>
+                  <input
+                    className="task-edit-input"
+                    type="datetime-local"
+                    value={editScheduledEnd}
+                    onChange={(event) => setEditScheduledEnd(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="task-edit-form-group">
+                <label>标签（逗号分隔）</label>
+                <input
+                  className="task-edit-input"
+                  type="text"
+                  value={editTagsInput}
+                  onChange={(event) => setEditTagsInput(event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="task-edit-modal-footer">
+              <button className="task-edit-cancel" onClick={handleCloseEditModal}>
+                取消
+              </button>
+              <button className="task-edit-save" onClick={handleSaveEditModal}>
+                保存修改
+              </button>
+            </div>
           </div>
         </div>
       )}

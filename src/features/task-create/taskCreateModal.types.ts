@@ -7,6 +7,7 @@ export type TaskCreateDraftStep1 = {
   priority?: TaskPriority;
   tags?: string[];
   scheduledDate?: string; // YYYY-MM-DD 格式
+  dueDate?: string; // YYYY-MM-DD 格式
   autoCreateNote?: boolean; // 是否自动创建task note
   newTagInput?: string; // 用于输入新标签的临时字段
 };
@@ -30,7 +31,9 @@ export interface CreateTaskInput {
   status: TaskStatus;
   priority?: TaskPriority;
   tags?: string[];
+  labels?: string[];
   due_date?: string;
+  board_id?: string;
   estimate_min?: number;
   scheduled_start?: string; // ISO datetime string
   scheduled_end?: string; // ISO datetime string
@@ -43,6 +46,8 @@ export const toCreateTaskInputStep1 = (draft: TaskCreateDraftStep1): CreateTaskI
     status: draft.status,
     priority: draft.priority,
     tags: draft.tags && draft.tags.length > 0 ? draft.tags : undefined,
+    due_date: draft.dueDate,
+    board_id: "default",
   };
   
   // 只有当选择了日期时才添加 scheduled_start
@@ -62,6 +67,7 @@ export const toCreateTaskInput = (draft: TaskDraft): CreateTaskInput => ({
   priority: draft.priority,
   tags: draft.tags.length > 0 ? draft.tags : undefined,
   due_date: draft.dueDate,
+  board_id: "default",
   estimate_min: draft.estimateMin,
 });
 

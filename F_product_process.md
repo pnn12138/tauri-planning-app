@@ -10,6 +10,7 @@ C_Architecture.md.
 - Core functionality is complete, with robust state management and error handling.
 - Web tab functionality includes navigation controls, history management, and bridge communication.
 - File operations (create, rename, delete) are fully implemented with safety checks.
+- Planning service uses UTC timestamps for status transitions (chrono Utc).
 
 ## Project Code Structure
 
@@ -173,7 +174,10 @@ d:\tauri\tauri-planning-app/
 - **Saving State**: Disables navigation and shows status messages during save operations.
 - **Window Controls**: Custom top bar with minimize/maximize/close buttons wired to Tauri window API.
 - **Drag Behavior**: Top bar supports dragging via `startDragging` API.
+- **Home Dashboard Scroll**: Home pane provides its own scroll container; dashboard header stays visible without covering content.
+- **Layering**: Home dashboard header stays below the app top bar in z-order.
 - **Kanban DnD**: Drag overlay keeps card sizing stable; all columns (including doing) are valid drop targets via column droppables with pointer-based collision detection and `elementsFromPoint` hit-test fallback when `over` is null.
+- **Kanban Cards**: Right-click opens the status/priority menu; double-click opens the task edit modal; single click opens the note.
 
 ### Web tabs and webview bridge
 - **Webviews**: Web tabs are hosted as Tauri webviews in the main window, each with a unique label.
@@ -192,6 +196,11 @@ d:\tauri\tauri-planning-app/
 - **Rename**: `rename_markdown` command for renaming files and directories.
 - **Delete**: `delete_entry` command for deleting files and directories.
 - **Safety Checks**: All operations validate vault boundaries and file types.
+
+### Planning Tasks
+- **Task Model**: Tasks include description, priority, labels, due date, board id, and status lifecycle fields.
+- **Create Defaults**: New tasks default to `backlog` with required `board_id` and optional `due_date`.
+- **Status Rules**: Backend enforces due-date and completed-at constraints based on status; frontend only prompts.
 
 ### Plugin System (Phase 2 - In Progress)
 - **Plugin Directory**: `<VAULT>/.yourapp/plugins/<pluginId>/`

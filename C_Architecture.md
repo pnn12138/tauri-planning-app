@@ -100,7 +100,9 @@ Rules can be extended later.
   - `Preview` (Markdown preview)
 - Sidebar can be collapsed/expanded via a top-left toggle button.
 - When collapsed, editor + preview take full width.
+- Home dashboard scrolls within the content pane and stays beneath the app top bar in z-order.
 - Home Kanban drag-and-drop uses droppable columns (including doing/empty), pointer-based collision detection with `elementsFromPoint` hit-test fallback, and a drag overlay to keep card sizing stable.
+- Home Kanban task cards open the status/priority menu on right click and open the edit modal on double click.
 
 ### 5.2 State model (MVP)
 
@@ -196,6 +198,8 @@ Backend provides:
 - File operations (create, rename, delete)
 - Web tab bridge communication
 - Plugin management and execution environment
+- Planning task lifecycle validation (due_date/completed_at, board_id)
+- Planning tasks use UTC timestamps for completed_at.
 - Enforce vault boundary for all file operations
 - Provide consistent error responses
 - Plugin permission management and isolation
