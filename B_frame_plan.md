@@ -58,6 +58,7 @@
 - UI 结构：顶部导航栏（Logo/应用名、Tab 区、地址/状态区预留、右侧功能区、窗口控制按钮）+ 主内容区（Sidebar + Tab 内容）。
 - 顶部导航栏固定在窗口最上方，作为全局 UI 容器，不随内容滚动。
 - 内容路由：按 Tab 类型渲染对应视图（Home / Markdown 编辑预览 / Web 页）。
+- Home 看板：内容区内独立滚动，顶部头部保持在内容容器内且层级低于 App 顶栏。
 - Tab 规则：Home Tab 固定存在且不可关闭；其他 Tab 可关闭。
 - 布局模式：Markdown 编辑区与预览区**双栏并排**为默认 MVP 形态；后续可扩展单栏或折叠预览。
 - 状态管理：集中管理 `vaultRoot`、`fileTree`、`tabs`、`activeTabId`、`sidebarOpen` 等最小状态集。
@@ -65,12 +66,15 @@
 - UI 显示规则：Vault 显示名使用 `basename(path)`，不展示完整绝对路径。
 - UI 交互约束：Hide files 为 icon-only 小方块按钮，明确两态，悬停提示。
 - UI 交互约束：Home 看板支持跨列拖拽（包含进行中列），空列也可作为合法落点，使用列级 droppable + 指针碰撞检测并在必要时用 `elementsFromPoint` 命中回退确定落点。
+- UI 交互约束：任务卡片右键打开状态/优先级菜单，双击打开任务编辑界面。
 - 错误处理：预览渲染失败时给出可诊断提示并提供降级显示，编辑器仍可用。
 
 ### 4.2 后端（Rust / Tauri）
 - 文件系统能力：扫描目录、读取文件内容、保存文件内容。
 - 安全边界：所有路径必须限定在用户选择的 Vault 内（仅相对路径）。
 - IPC 约束：命令数量小、输入输出结构明确、错误可被前端稳定处理。
+- Planning tasks：backend enforces status-driven constraints (due_date/completed_at) and requires board_id.
+- Planning tasks use UTC timestamps for completed_at.
 
 ### 4.3 IPC 交互
 - 交互风格：前端通过 `invoke` 调用后端命令；后端返回统一 Envelope 结构（ok/data 或 ok/error）。

@@ -6,7 +6,7 @@ import './taskCreateModal.css';
 
 const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
   open,
-  defaultStatus = 'todo',
+  defaultStatus = 'backlog',
   onClose,
   onCreated,
 }) => {
@@ -20,6 +20,7 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
     priority: undefined,
     tags: [],
     scheduledDate: undefined,
+    dueDate: undefined,
     autoCreateNote: true, // 默认自动创建task note
     newTagInput: '',
   };
@@ -27,6 +28,7 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
   // State management
   const [draft, setDraft] = useState<TaskCreateDraftStep1>(initialDraft);
   const [error, setError] = useState<string>('');
+  const [dueDateError, setDueDateError] = useState<string>('');
   const [apiError, setApiError] = useState<NormalizedApiError | null>(null);
   const [lastSubmitInput, setLastSubmitInput] = useState<CreateTaskInput | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -47,6 +49,10 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
     
     // Clear API error when user edits the form
     setApiError(null);
+
+    if (patch.dueDate !== undefined || patch.status !== undefined) {
+      setDueDateError('');
+    }
   };
 
   // Handle form submission
@@ -64,7 +70,13 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
       return;
     }
 
+    if (submitInput.status === 'todo' && !submitInput.due_date) {
+      setDueDateError('待办任务需要设置截止日期');
+      return;
+    }
+
     setError('');
+    setDueDateError('');
     setApiError(null);
     setIsSubmitting(true);
     
@@ -291,6 +303,25 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
                   disabled={isSubmitting}
                 />
               </div>
+            </div>
+
+            {/* Due Date */}
+            <div className="task-create-form-group">
+              <label className="task-create-form-label">
+                <span className="material-symbols-outlined task-create-label-icon">calendar_today</span>
+                截止日期
+              </label>
+              <div className="task-create-date-input-container">
+                <input
+                  type="date"
+                  className={`task-create-form-input task-create-date-input ${dueDateError ? 'error' : ''}`}
+                  value={draft.dueDate || ''}
+                  onChange={(e) => updateDraft({ dueDate: e.target.value || undefined })}
+                  disabled={isSubmitting}
+                />
+              </div>
+              {dueDateError && <div className="task-create-form-error">{dueDateError}</div>}
+              {getFieldError('due_date') && <div className="task-create-form-error">{getFieldError('due_date')}</div>}
             </div>
           </div>
           

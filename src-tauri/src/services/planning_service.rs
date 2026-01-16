@@ -1,9 +1,11 @@
 use std::path::Path;
+
+use chrono::Utc;
 use tauri::AppHandle;
 use tracing::{error, info, span, Level};
 use uuid::Uuid;
 
-use crate::domain::planning::{CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput, Task, TodayDTO, UpdateTaskInput};
+use crate::domain::planning::{CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput, Task, TaskStatus, TodayDTO, UpdateTaskInput};
 use crate::ipc::ApiError;
 use crate::repo::{planning_md_repo::PlanningMdRepo, planning_repo::PlanningRepo};
 
@@ -54,14 +56,44 @@ impl PlanningService {
         let _enter = span.enter();
         
         let start = std::time::Instant::now();
+        let board_id = input.board_id.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty());
+        if board_id.is_none() {
+            return Err(ApiError {
+                code: "BOARD_ID_REQUIRED".to_string(),
+                message: "board_id is required".to_string(),
+                details: None,
+            });
+        }
+
+        let due_date_value = input.due_date.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty());
+        if matches!(input.status, TaskStatus::Todo | TaskStatus::Doing) && due_date_value.is_none() {
+            return Err(ApiError {
+                code: "DUE_DATE_REQUIRED".to_string(),
+                message: "due_date is required for todo/doing tasks".to_string(),
+                details: None,
+            });
+        }
+
+        let labels = input.labels.as_ref().or(input.tags.as_ref());
+        let completed_at = if input.status == TaskStatus::Done {
+            Some(Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+
         let result = self.db_repo.create_task(
             &input.title,
+            input.description.as_deref(),
             input.status,
+            input.priority,
+            due_date_value,
+            board_id,
             input.estimate_min,
-            input.tags.as_ref().map(|tags| tags.as_ref()),
+            labels.map(|tags| tags.as_ref()),
             input.scheduled_start.as_deref(),
             input.scheduled_end.as_deref(),
             input.note_path.as_deref(),
+            completed_at.as_deref(),
         );
         let elapsed = start.elapsed();
         
@@ -89,21 +121,86 @@ impl PlanningService {
         
         let result = (|| -> Result<(), ApiError> {
             // Check if task exists
-            self.get_task_or_not_found(&input.id)?;
+            let task = self.get_task_or_not_found(&input.id)?;
             
+            let next_status = input.status.unwrap_or(task.status);
+            let due_date_update = match input.due_date {
+                None => None,
+                Some(None) => Some(None),
+                Some(Some(value)) => {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        Some(None)
+                    } else {
+                        Some(Some(trimmed.to_string()))
+                    }
+                }
+            };
+            let effective_due_date = match &due_date_update {
+                Some(value) => value.clone(),
+                None => task.due_date.clone(),
+            };
+
+            if matches!(next_status, TaskStatus::Todo | TaskStatus::Doing) && effective_due_date.is_none() {
+                return Err(ApiError {
+                    code: "DUE_DATE_REQUIRED".to_string(),
+                    message: "due_date is required for todo/doing tasks".to_string(),
+                    details: None,
+                });
+            }
+
+            if matches!(next_status, TaskStatus::Todo | TaskStatus::Doing) {
+                if let Some(None) = due_date_update {
+                    return Err(ApiError {
+                        code: "DUE_DATE_REQUIRED".to_string(),
+                        message: "due_date cannot be cleared for todo/doing tasks".to_string(),
+                        details: None,
+                    });
+                }
+            }
+
+            let completed_at_update = if task.status == TaskStatus::Done && next_status != TaskStatus::Done {
+                Some(None)
+            } else if task.status != TaskStatus::Done && next_status == TaskStatus::Done {
+                Some(Some(Utc::now().to_rfc3339()))
+            } else {
+                None
+            };
+
+            let board_id = match input.board_id.as_ref() {
+                Some(value) => {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(ApiError {
+                            code: "BOARD_ID_REQUIRED".to_string(),
+                            message: "board_id cannot be empty".to_string(),
+                            details: None,
+                        });
+                    }
+                    Some(trimmed)
+                }
+                None => None,
+            };
+
+            let labels = input.labels.as_ref().or(input.tags.as_ref());
+
             // Update task in database
             let updated_task = self.db_repo.update_task(
                 &input.id,
                 input.title.as_deref(),
+                input.description.as_deref(),
                 input.status,
                 input.priority,
-                input.tags.as_ref(),
+                labels,
                 input.order_index,
                 input.estimate_min,
                 input.scheduled_start.as_deref(),
                 input.scheduled_end.as_deref(),
+                due_date_update,
+                board_id,
                 input.note_path.as_deref(),
                 input.archived,
+                completed_at_update,
             )?;
             
             // If title changed, update markdown file
@@ -201,6 +298,14 @@ impl PlanningService {
                     details: None,
                 });
             }
+
+            if task.due_date.is_none() {
+                return Err(ApiError {
+                    code: "DUE_DATE_REQUIRED".to_string(),
+                    message: "due_date is required for todo/doing tasks".to_string(),
+                    details: None,
+                });
+            }
             
             self.db_repo.reopen_task(task_id)?;
             Ok(())
@@ -247,6 +352,14 @@ impl PlanningService {
                     details: None,
                 });
             }
+
+            if task.due_date.is_none() {
+                return Err(ApiError {
+                    code: "DUE_DATE_REQUIRED".to_string(),
+                    message: "due_date is required for todo/doing tasks".to_string(),
+                    details: None,
+                });
+            }
             
             self.db_repo.start_task(task_id)?;
             Ok(())
@@ -282,6 +395,14 @@ impl PlanningService {
                 return Err(ApiError {
                     code: "InvalidStateTransition".to_string(),
                     message: "Task is not in progress".to_string(),
+                    details: None,
+                });
+            }
+
+            if task.due_date.is_none() {
+                return Err(ApiError {
+                    code: "DUE_DATE_REQUIRED".to_string(),
+                    message: "due_date is required for todo/doing tasks".to_string(),
                     details: None,
                 });
             }

@@ -8,13 +8,17 @@ export type TaskPriority = 'high' | 'medium' | 'low';
 export interface Task {
   id: string;
   title: string;
+  description?: string;
   status: TaskStatus;
   priority?: TaskPriority;
   tags?: string[];
+  labels?: string[];
   order_index: number;
   estimate_min?: number;
   scheduled_start?: string;
   scheduled_end?: string;
+  due_date?: string;
+  board_id?: string;
   note_path?: string;
   created_at: string;
   updated_at: string;
@@ -64,9 +68,14 @@ export interface TodayDTO {
 // Task creation input
 export interface CreateTaskInput {
   title: string;
+  description?: string;
   status: TaskStatus;
+  priority?: TaskPriority;
+  due_date?: string;
+  board_id?: string;
   estimate_min?: number;
   tags?: string[];
+  labels?: string[];
   scheduled_start?: string;
   scheduled_end?: string;
   note_path?: string;
@@ -76,9 +85,13 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   id: string;
   title?: string;
+  description?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
   tags?: string[];
+  labels?: string[];
+  due_date?: string | null;
+  board_id?: string;
   order_index?: number;
   estimate_min?: number;
   scheduled_start?: string;

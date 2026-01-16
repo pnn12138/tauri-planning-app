@@ -41,7 +41,12 @@ impl PlanningRepo {
             r#"CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
+                description TEXT,
                 status TEXT NOT NULL,
+                priority TEXT,
+                tags TEXT,
+                due_date TEXT,
+                board_id TEXT,
                 order_index INTEGER NOT NULL,
                 estimate_min INTEGER,
                 scheduled_start TEXT,
@@ -91,6 +96,60 @@ impl PlanningRepo {
             ).map_err(|e| ApiError {
                 code: "DatabaseError".to_string(),
                 message: format!("Failed to add tags column: {}", e),
+                details: None,
+            })?;
+        }
+
+        // Add description column if not exists
+        let has_description: i32 = self.conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'description'",
+            [],
+            |row| row.get(0)
+        )?;
+
+        if has_description == 0 {
+            self.conn.execute(
+                "ALTER TABLE tasks ADD COLUMN description TEXT",
+                [],
+            ).map_err(|e| ApiError {
+                code: "DatabaseError".to_string(),
+                message: format!("Failed to add description column: {}", e),
+                details: None,
+            })?;
+        }
+
+        // Add due_date column if not exists
+        let has_due_date: i32 = self.conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'due_date'",
+            [],
+            |row| row.get(0)
+        )?;
+
+        if has_due_date == 0 {
+            self.conn.execute(
+                "ALTER TABLE tasks ADD COLUMN due_date TEXT",
+                [],
+            ).map_err(|e| ApiError {
+                code: "DatabaseError".to_string(),
+                message: format!("Failed to add due_date column: {}", e),
+                details: None,
+            })?;
+        }
+
+        // Add board_id column if not exists
+        let has_board_id: i32 = self.conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'board_id'",
+            [],
+            |row| row.get(0)
+        )?;
+
+        if has_board_id == 0 {
+            self.conn.execute(
+                "ALTER TABLE tasks ADD COLUMN board_id TEXT",
+                [],
+            ).map_err(|e| ApiError {
+                code: "DatabaseError".to_string(),
+                message: format!("Failed to add board_id column: {}", e),
                 details: None,
             })?;
         }
@@ -178,43 +237,7 @@ impl PlanningRepo {
     pub fn get_today_data(&self, today: &str) -> Result<TodayDTO, ApiError> {
         // Get all tasks
         let mut stmt = self.conn.prepare("SELECT * FROM tasks ORDER BY status, order_index")?;
-        let task_iter = stmt.query_map([], |row| {
-            // Parse priority
-            let priority_str: Option<String> = row.get(12)?;
-            let priority = priority_str.as_deref().map(TaskPriority::from);
-            
-            // Parse tags
-            let tags_str: Option<String> = row.get(13)?;
-            let tags = match tags_str {
-                Some(s) if !s.is_empty() => {
-                    match serde_json::from_str(&s) {
-                        Ok(tags) => Some(tags),
-                        Err(e) => {
-                            log::warn!("Failed to parse tags: {} for task {}", e, row.get::<_, String>(0)?);
-                            None
-                        }
-                    }
-                },
-                _ => None
-            };
-            
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                status: TaskStatus::from(row.get::<_, String>(2)?.as_str()),
-                priority,
-                tags,
-                order_index: row.get(3)?,
-                estimate_min: row.get(4)?,
-                scheduled_start: row.get(5)?,
-                scheduled_end: row.get(6)?,
-                note_path: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                completed_at: row.get(10)?,
-                archived: row.get(11)?,
-            })
-        })?;
+        let task_iter = stmt.query_map([], |row| task_from_row(row))?;
         
         let mut all_tasks: Vec<Task> = Vec::new();
         for task in task_iter {
@@ -301,43 +324,7 @@ impl PlanningRepo {
     // Get task by id
     pub fn get_task_by_id(&self, task_id: &str) -> Result<Task, ApiError> {
         let mut stmt = self.conn.prepare("SELECT * FROM tasks WHERE id = ?")?;
-        let task = stmt.query_row([task_id], |row| {
-            // Parse priority
-            let priority_str: Option<String> = row.get(12)?;
-            let priority = priority_str.as_deref().map(TaskPriority::from);
-            
-            // Parse tags
-            let tags_str: Option<String> = row.get(13)?;
-            let tags = match tags_str {
-                Some(s) if !s.is_empty() => {
-                    match serde_json::from_str(&s) {
-                        Ok(tags) => Some(tags),
-                        Err(e) => {
-                            log::warn!("Failed to parse tags: {} for task {}", e, row.get::<_, String>(0)?);
-                            None
-                        }
-                    }
-                },
-                _ => None
-            };
-            
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                status: TaskStatus::from(row.get::<_, String>(2)?.as_str()),
-                priority,
-                tags,
-                order_index: row.get(3)?,
-                estimate_min: row.get(4)?,
-                scheduled_start: row.get(5)?,
-                scheduled_end: row.get(6)?,
-                note_path: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                completed_at: row.get(10)?,
-                archived: row.get(11)?,
-            })
-        })?;
+        let task = stmt.query_row([task_id], |row| task_from_row(row))?;
         
         Ok(task)
     }
@@ -345,43 +332,7 @@ impl PlanningRepo {
     // Get task by id, returns None if not found
     pub fn get_task(&self, task_id: &str) -> Result<Option<Task>, ApiError> {
         let mut stmt = self.conn.prepare("SELECT * FROM tasks WHERE id = ?")?;
-        let task = stmt.query_row([task_id], |row| {
-            // Parse priority
-            let priority_str: Option<String> = row.get(12)?;
-            let priority = priority_str.as_deref().map(TaskPriority::from);
-            
-            // Parse tags
-            let tags_str: Option<String> = row.get(13)?;
-            let tags = match tags_str {
-                Some(s) if !s.is_empty() => {
-                    match serde_json::from_str(&s) {
-                        Ok(tags) => Some(tags),
-                        Err(e) => {
-                            log::warn!("Failed to parse tags: {} for task {}", e, row.get::<_, String>(0)?);
-                            None
-                        }
-                    }
-                },
-                _ => None
-            };
-            
-            Ok(Task {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                status: TaskStatus::from(row.get::<_, String>(2)?.as_str()),
-                priority,
-                tags,
-                order_index: row.get(3)?,
-                estimate_min: row.get(4)?,
-                scheduled_start: row.get(5)?,
-                scheduled_end: row.get(6)?,
-                note_path: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                completed_at: row.get(10)?,
-                archived: row.get(11)?,
-            })
-        }).optional()?;
+        let task = stmt.query_row([task_id], |row| task_from_row(row)).optional()?;
         
         Ok(task)
     }
@@ -399,9 +350,10 @@ impl PlanningRepo {
     }
     
     // Create a new task
-    pub fn create_task(&self, title: &str, status: TaskStatus, estimate_min: Option<i64>, 
-                      tags: Option<&Vec<String>>, scheduled_start: Option<&str>, scheduled_end: Option<&str>, 
-                      note_path: Option<&str>) -> Result<Task, ApiError> {
+    pub fn create_task(&self, title: &str, description: Option<&str>, status: TaskStatus,
+                      priority: Option<TaskPriority>, due_date: Option<&str>, board_id: Option<&str>,
+                      estimate_min: Option<i64>, tags: Option<&Vec<String>>, scheduled_start: Option<&str>,
+                      scheduled_end: Option<&str>, note_path: Option<&str>, completed_at: Option<&str>) -> Result<Task, ApiError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         
@@ -429,11 +381,12 @@ impl PlanningRepo {
         };
         
         self.conn.execute(
-            r#"INSERT INTO tasks (id, title, status, order_index, estimate_min, scheduled_start, scheduled_end, note_path, created_at, updated_at, archived, tags) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)"#,
+            r#"INSERT INTO tasks (id, title, description, status, priority, tags, due_date, board_id, order_index, estimate_min, scheduled_start, scheduled_end, note_path, created_at, updated_at, completed_at, archived) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"#,
             params![
-                id, title, status.to_string(), order_index, estimate_min, 
-                scheduled_start, scheduled_end, note_path, now, now, tags_json
+                id, title, description, status.to_string(), priority.map(|p| p.to_string()), tags_json,
+                due_date, board_id, order_index, estimate_min, scheduled_start, scheduled_end, note_path, now, now,
+                completed_at
             ],
         )?;
         
@@ -441,10 +394,11 @@ impl PlanningRepo {
     }
     
     // Update an existing task
-    pub fn update_task(&self, task_id: &str, title: Option<&str>, status: Option<TaskStatus>, 
-                      priority: Option<TaskPriority>, tags: Option<&Vec<String>>, order_index: Option<i64>, 
-                      estimate_min: Option<i64>, scheduled_start: Option<&str>, scheduled_end: Option<&str>, 
-                      note_path: Option<&str>, archived: Option<i32>) -> Result<Task, ApiError> {
+    pub fn update_task(&self, task_id: &str, title: Option<&str>, description: Option<&str>, status: Option<TaskStatus>,
+                      priority: Option<TaskPriority>, tags: Option<&Vec<String>>, order_index: Option<i64>,
+                      estimate_min: Option<i64>, scheduled_start: Option<&str>, scheduled_end: Option<&str>,
+                      due_date: Option<Option<String>>, board_id: Option<&str>, note_path: Option<&str>,
+                      archived: Option<i32>, completed_at: Option<Option<String>>) -> Result<Task, ApiError> {
         let now = Utc::now().to_rfc3339();
         
         // Get current task to preserve unchanged fields
@@ -453,6 +407,10 @@ impl PlanningRepo {
         // Update fields if provided
         if let Some(new_title) = title {
             current_task.title = new_title.to_string();
+        }
+
+        if let Some(new_description) = description {
+            current_task.description = Some(new_description.to_string());
         }
         
         if let Some(new_status) = status {
@@ -472,6 +430,7 @@ impl PlanningRepo {
         
         if let Some(new_tags) = tags {
             current_task.tags = Some(new_tags.clone());
+            current_task.labels = Some(new_tags.clone());
         }
         
         if let Some(new_order) = order_index {
@@ -489,6 +448,14 @@ impl PlanningRepo {
         if let Some(new_end) = scheduled_end {
             current_task.scheduled_end = Some(new_end.to_string());
         }
+
+        if let Some(new_due_date) = due_date {
+            current_task.due_date = new_due_date;
+        }
+
+        if let Some(new_board_id) = board_id {
+            current_task.board_id = Some(new_board_id.to_string());
+        }
         
         if let Some(new_note_path) = note_path {
             current_task.note_path = Some(new_note_path.to_string());
@@ -496,6 +463,10 @@ impl PlanningRepo {
         
         if let Some(new_archived) = archived {
             current_task.archived = new_archived;
+        }
+
+        if let Some(new_completed_at) = completed_at {
+            current_task.completed_at = new_completed_at;
         }
         
         current_task.updated_at = now;
@@ -516,15 +487,15 @@ impl PlanningRepo {
         
         // Update in database
         self.conn.execute(
-            r#"UPDATE tasks SET title = ?, status = ?, priority = ?, tags = ?, order_index = ?, estimate_min = ?, 
-               scheduled_start = ?, scheduled_end = ?, note_path = ?, updated_at = ?, archived = ? 
+            r#"UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, tags = ?, due_date = ?, board_id = ?, order_index = ?, estimate_min = ?,
+               scheduled_start = ?, scheduled_end = ?, note_path = ?, updated_at = ?, archived = ?, completed_at = ?
                WHERE id = ?"#,
             params![
-                current_task.title, current_task.status.to_string(), 
-                current_task.priority.map(|p| p.to_string()), tags_json,
-                current_task.order_index, current_task.estimate_min, 
-                current_task.scheduled_start, current_task.scheduled_end,
-                current_task.note_path, current_task.updated_at, current_task.archived, task_id
+                current_task.title, current_task.description, current_task.status.to_string(),
+                current_task.priority.map(|p| p.to_string()), tags_json, current_task.due_date,
+                current_task.board_id, current_task.order_index, current_task.estimate_min,
+                current_task.scheduled_start, current_task.scheduled_end, current_task.note_path,
+                current_task.updated_at, current_task.archived, current_task.completed_at, task_id
             ],
         )?;
         
@@ -822,4 +793,48 @@ fn merge_json(existing: serde_json::Value, partial: serde_json::Value) -> serde_
         // If either is not an object, partial takes precedence
         partial
     }
+}
+
+fn parse_tags(tags_str: Option<String>, task_id: &str) -> Option<Vec<String>> {
+    match tags_str {
+        Some(s) if !s.is_empty() => {
+            match serde_json::from_str(&s) {
+                Ok(tags) => Some(tags),
+                Err(e) => {
+                    log::warn!("Failed to parse tags: {} for task {}", e, task_id);
+                    None
+                }
+            }
+        },
+        _ => None,
+    }
+}
+
+fn task_from_row(row: &rusqlite::Row<'_>) -> Result<Task, rusqlite::Error> {
+    let id: String = row.get("id")?;
+    let priority_str: Option<String> = row.get("priority")?;
+    let priority = priority_str.as_deref().map(TaskPriority::from);
+    let tags_str: Option<String> = row.get("tags")?;
+    let tags = parse_tags(tags_str, &id);
+
+    Ok(Task {
+        id,
+        title: row.get("title")?,
+        description: row.get("description")?,
+        status: TaskStatus::from(row.get::<_, String>("status")?.as_str()),
+        priority,
+        tags: tags.clone(),
+        labels: tags,
+        order_index: row.get("order_index")?,
+        estimate_min: row.get("estimate_min")?,
+        scheduled_start: row.get("scheduled_start")?,
+        scheduled_end: row.get("scheduled_end")?,
+        due_date: row.get("due_date")?,
+        board_id: row.get("board_id")?,
+        note_path: row.get("note_path")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        completed_at: row.get("completed_at")?,
+        archived: row.get("archived")?,
+    })
 }
