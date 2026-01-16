@@ -1,4 +1,4 @@
-﻿# frame_plan.md
+# frame_plan.md
 
 本文件用于给出本项目的**框架规划与演进方向**，服务于长期结构决策与阶段性实现边界。它应与 `A_product_plan.md`、`F_product_process.md` 与 `C_Architecture.md` 保持一致；当阶段变化或边界调整时，先更新过程文档再更新本文件。
 
@@ -64,6 +64,7 @@
 - 渲染管线：预览独立于编辑器，默认不渲染危险 HTML（避免 XSS）。
 - UI 显示规则：Vault 显示名使用 `basename(path)`，不展示完整绝对路径。
 - UI 交互约束：Hide files 为 icon-only 小方块按钮，明确两态，悬停提示。
+- UI 交互约束：Home 看板支持跨列拖拽（包含进行中列），空列也可作为合法落点，使用列级 droppable + 指针碰撞检测并在必要时用 `elementsFromPoint` 命中回退确定落点。
 - 错误处理：预览渲染失败时给出可诊断提示并提供降级显示，编辑器仍可用。
 
 ### 4.2 后端（Rust / Tauri）

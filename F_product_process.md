@@ -173,6 +173,7 @@ d:\tauri\tauri-planning-app/
 - **Saving State**: Disables navigation and shows status messages during save operations.
 - **Window Controls**: Custom top bar with minimize/maximize/close buttons wired to Tauri window API.
 - **Drag Behavior**: Top bar supports dragging via `startDragging` API.
+- **Kanban DnD**: Drag overlay keeps card sizing stable; all columns (including doing) are valid drop targets via column droppables with pointer-based collision detection and `elementsFromPoint` hit-test fallback when `over` is null.
 
 ### Web tabs and webview bridge
 - **Webviews**: Web tabs are hosted as Tauri webviews in the main window, each with a unique label.

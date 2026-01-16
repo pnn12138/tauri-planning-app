@@ -1549,19 +1549,14 @@ button.ghost.is-danger {
 
 /* 确保拖拽中的卡片始终完整显示 - 只针对拖拽中的卡片 */
 .task-card-wrapper.dragging {
-  position: fixed !important;
-  z-index: 10000 !important;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3) !important;
-  opacity: 0.95 !important;
-  transition: all 0.1s ease !important;
-  pointer-events: none !important;
-  will-change: transform, opacity, box-shadow;
-  transform-origin: center center !important;
-  backface-visibility: hidden !important;
-  perspective: 1000px !important;
-  overflow: visible !important;
-  width: 280px !important;
-  max-width: 280px !important;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.task-card-drag-overlay {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  opacity: 0.95;
+  pointer-events: none;
 }
 
 /* Drop target hover styles */

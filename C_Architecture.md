@@ -100,6 +100,7 @@ Rules can be extended later.
   - `Preview` (Markdown preview)
 - Sidebar can be collapsed/expanded via a top-left toggle button.
 - When collapsed, editor + preview take full width.
+- Home Kanban drag-and-drop uses droppable columns (including doing/empty), pointer-based collision detection with `elementsFromPoint` hit-test fallback, and a drag overlay to keep card sizing stable.
 
 ### 5.2 State model (MVP)
 
