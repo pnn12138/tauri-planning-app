@@ -110,7 +110,7 @@ export async function planningGetUiState(
   vaultId: string
 ): Promise<Record<string, any> | null> {
   const result = await invokeApi<string | null>("planning_get_ui_state", { 
-    vault_id: vaultId 
+    vaultId 
   });
 
   if (result == null) return null;
@@ -133,7 +133,7 @@ export async function planningGetUiState(
 // Set UI state for the current vault
 export async function planningSetUiState(vaultId: string, partialState: Record<string, any>): Promise<void> {
   return invokeApi<void>("planning_set_ui_state", { 
-    vault_id: vaultId, 
+    vaultId, 
     partial_state_json: JSON.stringify(partialState) 
   });
 }

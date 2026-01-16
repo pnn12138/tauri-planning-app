@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState, saveSnapshot, rollback } from './features/planning/planning.store';
 import { planningOpenTaskNote } from './features/planning/planning.api';
 import TaskCreateModal from './features/task-create/TaskCreateModal';
@@ -27,12 +27,16 @@ function generateVaultId(vaultRoot: string | null): string {
 }
 import {
   DndContext,
-  closestCenter,
+  DragOverlay,
+  pointerWithin,
+  rectIntersection,
   KeyboardSensor,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   DragStartEvent,
+  DragOverEvent,
   DragEndEvent,
   DragMoveEvent,
 } from '@dnd-kit/core';
@@ -180,6 +184,21 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [draggingOverColumn, setDraggingOverColumn] = useState<string | null>(null);
   const [draggingOverTimeline, setDraggingOverTimeline] = useState<string | null>(null);
+  const [draggingSize, setDraggingSize] = useState<{ width: number; height: number } | null>(null);
+  const lastOverIdRef = useRef<string | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const lastDragRectRef = useRef<DOMRect | null>(null);
+
+  const getColumnIdFromPoint = (x: number, y: number): string | null => {
+    const elements = document.elementsFromPoint(x, y);
+    for (const element of elements) {
+      const column = element.closest?.('.kanban-column') as HTMLElement | null;
+      if (column?.id) {
+        return column.id;
+      }
+    }
+    return null;
+  };
   
   // 从store获取UI状态
   const uiState = usePlanningStore(state => state.uiState);
@@ -201,6 +220,23 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  const backlogDroppable = useDroppable({
+    id: 'column:backlog',
+    data: { columnId: 'backlog' },
+  });
+  const todoDroppable = useDroppable({
+    id: 'column:todo',
+    data: { columnId: 'todo' },
+  });
+  const doingDroppable = useDroppable({
+    id: 'column:doing',
+    data: { columnId: 'doing' },
+  });
+  const doneDroppable = useDroppable({
+    id: 'column:done',
+    data: { columnId: 'done' },
+  });
   
   // 拖拽开始处理
   const handleDragStart = (event: DragStartEvent) => {
@@ -208,11 +244,34 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     setDraggingTaskId(event.active.id as string);
     setDraggingOverColumn(null);
     setDraggingOverTimeline(null);
+    const rect = event.active.rect.current?.initial;
+    if (rect) {
+      setDraggingSize({ width: rect.width, height: rect.height });
+    } else {
+      setDraggingSize(null);
+    }
   };
   
   // 拖拽过程处理（使用节流优化性能，添加拖拽目标检测）
   const handleDragMove = throttle((event: DragMoveEvent) => {
     const { over } = event;
+    const activatorEvent = event.activatorEvent as PointerEvent | undefined;
+    if (activatorEvent && 'clientX' in activatorEvent) {
+      lastPointerRef.current = { x: activatorEvent.clientX, y: activatorEvent.clientY };
+    }
+    const translatedRect = event.active.rect.current?.translated ?? event.active.rect.current?.initial ?? null;
+    if (translatedRect) {
+      lastDragRectRef.current = translatedRect as DOMRect;
+      const centerX = translatedRect.left + translatedRect.width / 2;
+      const centerY = translatedRect.top + translatedRect.height / 2;
+      const columnId = getColumnIdFromPoint(centerX, centerY);
+      if (columnId) {
+        lastOverIdRef.current = columnId;
+        setDraggingOverColumn(columnId);
+        setDraggingOverTimeline(null);
+        return;
+      }
+    }
     
     if (over) {
       if (typeof over.id === 'string' && over.id.startsWith('column:')) {
@@ -226,21 +285,48 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         setDraggingOverTimeline(null);
       }
     } else {
-      setDraggingOverColumn(null);
+      const pointer = lastPointerRef.current;
+      const columnId = pointer ? getColumnIdFromPoint(pointer.x, pointer.y) : null;
+      if (columnId) {
+        lastOverIdRef.current = columnId;
+      }
+      setDraggingOverColumn(columnId);
       setDraggingOverTimeline(null);
     }
   }, 50);
+
+  const handleDragOver = (event: DragOverEvent) => {
+    if (event.over?.id) {
+      lastOverIdRef.current = event.over.id as string;
+    }
+  };
   
   // 拖拽结束处理
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+    const lastOverId = lastOverIdRef.current;
+    lastOverIdRef.current = null;
+    const pointer = lastPointerRef.current;
+    lastPointerRef.current = null;
+    const dragRect = lastDragRectRef.current;
+    lastDragRectRef.current = null;
     setIsDragging(false);
     setDraggingTaskId(null);
     setDraggingOverColumn(null);
     setDraggingOverTimeline(null);
+    setDraggingSize(null);
     
+    let overId = (over?.id ?? lastOverId) as string | null;
+    if (!overId && pointer) {
+      overId = getColumnIdFromPoint(pointer.x, pointer.y);
+    }
+    if (!overId && dragRect) {
+      const centerX = dragRect.left + dragRect.width / 2;
+      const centerY = dragRect.top + dragRect.height / 2;
+      overId = getColumnIdFromPoint(centerX, centerY);
+    }
     // 确保拖拽目标有效
-    if (!over || active.id === over.id) {
+    if (!overId || active.id === overId) {
       return;
     }
     
@@ -283,16 +369,16 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     let insertIndex = -1;
     
     // 检查 over 是否为列容器
-    const isOverColumn = typeof over.id === 'string' && over.id.startsWith('column:');
+    const isOverColumn = typeof overId === 'string' && overId.startsWith('column:');
     
     // 检查 over 是否为时间线项目
-    const isOverTimeline = typeof over.id === 'string' && over.id.startsWith('timeline:');
+    const isOverTimeline = typeof overId === 'string' && overId.startsWith('timeline:');
     
     if (isOverTimeline) {
       // 处理时间线拖拽
       // 从 over.id 中提取时间信息，格式：timeline:HH:MM
-      if (typeof over.id === 'string') {
-        const timeStr = over.id.replace('timeline:', '');
+      if (typeof overId === 'string') {
+        const timeStr = overId.replace('timeline:', '');
         
         // 验证：检查任务是否有预估时间
         if (!draggedTask.estimate_min) {
@@ -385,15 +471,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       }
     } else if (!isOverColumn) {
       // over 是任务，获取目标列信息
-      const overTaskData = over.data.current;
+      const overTaskData = over?.data?.current;
       if (overTaskData) {
         targetColumnId = overTaskData.columnId;
-        // 禁止拖拽到 doing 列或从 doing 列拖拽
-        if (targetColumnId === 'doing' || sourceColumnId === 'doing') {
-          alert('doing 列不可拖拽，请使用 Start/Stop 按钮管理');
-          return;
-        }
-        
         // 确保目标列 ID 有效
         if (!validColumnIds.includes(targetColumnId as any)) {
           console.error('Invalid target column ID:', targetColumnId);
@@ -401,14 +481,14 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         }
         
         targetTasks = [...todayData.kanban[targetColumnId as typeof validColumnIds[number]]];
-        insertIndex = targetTasks.findIndex(task => task.id === over.id);
+        insertIndex = targetTasks.findIndex(task => task.id === overId);
       } else {
         // 如果无法从 over.data 获取目标列信息，尝试查找 over.id 对应的任务
         // 遍历所有列，查找 over.id 对应的任务
         let foundTask = null;
         for (const columnId of validColumnIds) {
           const tasks = todayData.kanban[columnId as typeof validColumnIds[number]];
-          foundTask = tasks.find(task => task.id === over.id);
+          foundTask = tasks.find(task => task.id === overId);
           if (foundTask) {
             targetColumnId = columnId as string;
             break;
@@ -416,29 +496,17 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         }
         
         if (foundTask) {
-          // 禁止拖拽到 doing 列或从 doing 列拖拽
-          if (targetColumnId === 'doing' || sourceColumnId === 'doing') {
-            alert('doing 列不可拖拽，请使用 Start/Stop 按钮管理');
-            return;
-          }
-          
           targetTasks = [...todayData.kanban[targetColumnId as typeof validColumnIds[number]]];
-          insertIndex = targetTasks.findIndex(task => task.id === over.id);
+          insertIndex = targetTasks.findIndex(task => task.id === overId);
         } else {
-          console.error('Failed to find target task with id:', over.id);
+          console.error('Failed to find target task with id:', overId);
           return;
         }
       }
     } else {
       // over 是列容器，获取列 ID
-      if (typeof over.id === 'string') {
-        targetColumnId = over.id.replace('column:', '');
-        
-        // 禁止拖拽到 doing 列或从 doing 列拖拽
-        if (targetColumnId === 'doing' || sourceColumnId === 'doing') {
-          alert('doing 列不可拖拽，请使用 Start/Stop 按钮管理');
-          return;
-        }
+      if (typeof overId === 'string') {
+        targetColumnId = overId.replace('column:', '');
         
         // 确保目标列 ID 有效
         if (!validColumnIds.includes(targetColumnId as any)) {
@@ -449,7 +517,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         targetTasks = [...todayData.kanban[targetColumnId as typeof validColumnIds[number]]];
         insertIndex = targetTasks.length; // 插入到列尾
       } else {
-        console.error('Invalid column ID type:', over.id);
+        console.error('Invalid column ID type:', overId);
         return;
       }
     }
@@ -893,6 +961,15 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     };
   };
 
+  const draggingTask = draggingTaskId && todayData
+    ? [
+        ...todayData.kanban.backlog,
+        ...todayData.kanban.todo,
+        ...todayData.kanban.doing,
+        ...todayData.kanban.done,
+      ].find(task => task.id === draggingTaskId) || null
+    : null;
+
   // Render timeline event
   const renderTimelineEvent = (task: Task) => {
     // Calculate estimated end time
@@ -958,23 +1035,14 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     };
     
     return (
-      <>
-        {/* 拖拽占位元素，保持布局稳定 */}
-        {isDragging && (
-          <div className="task-card-placeholder">
-          </div>
-        )}
-        {/* 实际拖拽卡片 */}
-        <div 
-          ref={setNodeRef} 
-          style={style} 
-          className={`task-card-wrapper ${isDragging ? 'dragging' : ''}`}
-          {...attributes}
-        >
-          {/* 任务卡片内容 - 上部区域可拖拽 */}
-          {renderTaskCard(task, listeners)}
-        </div>
-      </>
+      <div 
+        ref={setNodeRef} 
+        style={style} 
+        className={`task-card-wrapper ${isDragging ? 'dragging' : ''}`}
+        {...attributes}
+      >
+        {renderTaskCard(task, listeners)}
+      </div>
     );
   };
   
@@ -1129,8 +1197,15 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
           <main className="dashboard-main">
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCenter}
+              collisionDetection={(args) => {
+                const pointerCollisions = pointerWithin(args);
+                if (pointerCollisions.length > 0) {
+                  return pointerCollisions;
+                }
+                return rectIntersection(args);
+              }}
               onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
               onDragMove={handleDragMove}
               onDragEnd={handleDragEnd}
             >
@@ -1380,7 +1455,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 >
                 <div className="kanban-columns">
                   {/* Backlog */}
-                  <div className="kanban-column" id="column:backlog">
+                  <div
+                    className={`kanban-column ${backlogDroppable.isOver || draggingOverColumn === 'column:backlog' ? 'dragging-over' : ''}`}
+                    id="column:backlog"
+                    ref={backlogDroppable.setNodeRef}
+                  >
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">待排期</span>
@@ -1418,7 +1497,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   </div>
                   
                   {/* To Do */}
-                  <div className="kanban-column" id="column:todo">
+                  <div
+                    className={`kanban-column ${todoDroppable.isOver || draggingOverColumn === 'column:todo' ? 'dragging-over' : ''}`}
+                    id="column:todo"
+                    ref={todoDroppable.setNodeRef}
+                  >
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">待做</span>
@@ -1456,7 +1539,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   </div>
                   
                   {/* In Progress */}
-                  <div className="kanban-column active" id="column:doing">
+                  <div
+                    className={`kanban-column active ${doingDroppable.isOver || draggingOverColumn === 'column:doing' ? 'dragging-over' : ''}`}
+                    id="column:doing"
+                    ref={doingDroppable.setNodeRef}
+                  >
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">进行中</span>
@@ -1488,7 +1575,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   </div>
                   
                   {/* Completed */}
-                  <div className="kanban-column" id="column:done">
+                  <div
+                    className={`kanban-column ${doneDroppable.isOver || draggingOverColumn === 'column:done' ? 'dragging-over' : ''}`}
+                    id="column:done"
+                    ref={doneDroppable.setNodeRef}
+                  >
                     <div className="kanban-column-header">
                       <div className="kanban-column-title-section">
                         <span className="kanban-column-title">已完成</span>
@@ -1520,6 +1611,17 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   </div>
                 </div>
                 </SortableContext>
+
+                <DragOverlay>
+                  {draggingTask ? (
+                    <div
+                      className="task-card-wrapper task-card-drag-overlay"
+                      style={draggingSize ? { width: draggingSize.width, height: draggingSize.height } : undefined}
+                    >
+                      {renderTaskCard(draggingTask, undefined)}
+                    </div>
+                  ) : null}
+                </DragOverlay>
               
               <div className="kanban-footer">
                 <p className="kanban-footer-text">
