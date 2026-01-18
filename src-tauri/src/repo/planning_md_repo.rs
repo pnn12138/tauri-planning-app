@@ -1,5 +1,9 @@
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::collections::HashMap;
 
 use crate::ipc::ApiError;
 use crate::security::path_policy;
@@ -7,10 +11,19 @@ use crate::security::path_policy;
 const PLANNING_DIR: &str = ".planning";
 const TASKS_DIR: &str = "tasks";
 const DAILY_DIR: &str = "daily";
+const FRONTMATTER_VERSION: i32 = 2;
+
+// System-managed frontmatter fields
+const SYSTEM_FIELDS: &[&str] = &[
+    "fm_version", "id", "title", "status", "priority", 
+    "tags", "estimate_min", "due_date", "created_at", "updated_at"
+];
 
 // Markdown repository for planning data
 pub struct PlanningMdRepo {
     vault_root: PathBuf,
+    // Task-level write locks to prevent concurrent updates
+    task_locks: Mutex<HashMap<String, Mutex<()>>>,
 }
 
 impl PlanningMdRepo {
@@ -18,6 +31,7 @@ impl PlanningMdRepo {
     pub fn new(vault_root: &Path) -> Result<Self, ApiError> {
         let repo = Self {
             vault_root: vault_root.to_path_buf(),
+            task_locks: Mutex::new(HashMap::new()),
         };
         
         repo.ensure_directories()?;
@@ -76,37 +90,215 @@ impl PlanningMdRepo {
         Ok(md_path)
     }
     
-    // Create or update a task markdown file
+    // Parse frontmatter from markdown content
+    fn parse_frontmatter(&self, content: &str) -> (Option<HashMap<String, String>>, String) {
+        if !content.starts_with("---") {
+            return (None, content.to_string());
+        }
+        
+        // Find the end of frontmatter block
+        if let Some(end_idx) = content[3..].find("---") {
+            // Extract frontmatter content
+            let frontmatter_content = &content[3..(end_idx + 3)];
+            // Extract content after frontmatter
+            let content_after = content[(end_idx + 6)..].trim_start().to_string();
+            
+            // Parse frontmatter lines
+            let mut frontmatter = HashMap::new();
+            for line in frontmatter_content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                
+                if let Some((key, value)) = line.split_once(':') {
+                    let key = key.trim();
+                    let value = value.trim();
+                    frontmatter.insert(key.to_string(), value.to_string());
+                }
+            }
+            
+            (Some(frontmatter), content_after)
+        } else {
+            // Malformed frontmatter, return as content
+            (None, content.to_string())
+        }
+    }
+    
+    // Generate frontmatter from a hashmap
+    fn generate_frontmatter(&self, frontmatter: &HashMap<String, String>) -> String {
+        let mut lines = vec!["---".to_string()];
+        
+        // Always include version first
+        lines.push(format!("fm_version: {}", FRONTMATTER_VERSION));
+        
+        // Add other fields in order
+        for field in SYSTEM_FIELDS {
+            if *field != "fm_version" && frontmatter.contains_key(*field) {
+                let value = frontmatter.get(*field).unwrap();
+                lines.push(format!("{}: {}", field, value));
+            }
+        }
+        
+        lines.push("---".to_string());
+        lines.push("".to_string());
+        
+        lines.join("\n")
+    }
+    
+    // Update only the frontmatter section of a task markdown file
+    pub fn update_task_frontmatter(&self, task_id: &str, frontmatter_updates: &HashMap<String, String>) -> Result<(), ApiError> {
+        // Get or create a lock for this task
+        let mut task_locks = self.task_locks.lock().map_err(|_| ApiError {
+            code: "LockError".to_string(),
+            message: "Failed to acquire task lock".to_string(),
+            details: None,
+        })?;
+        
+        let task_lock = task_locks
+            .entry(task_id.to_string())
+            .or_insert_with(|| Mutex::new(()));
+        
+        // Lock this task's update
+        let _task_lock_guard = task_lock.lock().map_err(|_| ApiError {
+            code: "LockError".to_string(),
+            message: "Failed to acquire task lock".to_string(),
+            details: None,
+        })?;
+        
+        let md_path = self.get_task_md_path(task_id)?;
+        
+        // Read current content
+        let current_content = if md_path.exists() {
+            fs::read_to_string(&md_path).map_err(|e| ApiError {
+                code: "FileReadError".to_string(),
+                message: format!("Failed to read task markdown file: {}", e),
+                details: None,
+            })?
+        } else {
+            // File doesn't exist, no need to update
+            return Ok(());
+        };
+        
+        // Parse existing frontmatter
+        let (existing_frontmatter, content_after) = self.parse_frontmatter(&current_content);
+        
+        // Merge updates with existing frontmatter
+        let mut merged_frontmatter = existing_frontmatter.unwrap_or_default();
+        
+        // Only update system fields
+        for (key, value) in frontmatter_updates {
+            if SYSTEM_FIELDS.contains(&key.as_str()) {
+                merged_frontmatter.insert(key.clone(), value.clone());
+            }
+        }
+        
+        // Ensure version is set
+        merged_frontmatter.insert("fm_version".to_string(), FRONTMATTER_VERSION.to_string());
+        
+        // Generate new frontmatter
+        let new_frontmatter = self.generate_frontmatter(&merged_frontmatter);
+        
+        // Combine into full content
+        let full_content = format!("{}{}", new_frontmatter, content_after);
+        
+        // Atomic write: write to temp file first, then rename
+        let temp_path = md_path.with_extension(".tmp");
+        
+        // Write to temp file
+        let mut temp_file = File::create(&temp_path).map_err(|e| ApiError {
+            code: "FileWriteError".to_string(),
+            message: format!("Failed to write temp file: {}", e),
+            details: None,
+        })?;
+        
+        temp_file.write_all(full_content.as_bytes()).map_err(|e| ApiError {
+            code: "FileWriteError".to_string(),
+            message: format!("Failed to write temp file content: {}", e),
+            details: None,
+        })?;
+        
+        // Flush and sync to disk
+        temp_file.flush().map_err(|e| ApiError {
+            code: "FileWriteError".to_string(),
+            message: format!("Failed to flush temp file: {}", e),
+            details: None,
+        })?;
+        
+        // Atomic rename
+        fs::rename(&temp_path, &md_path).map_err(|e| ApiError {
+            code: "FileRenameError".to_string(),
+            message: format!("Failed to rename temp file: {}", e),
+            details: None,
+        })?;
+        
+        Ok(())
+    }
+    
+    // Create or update a task markdown file with proper frontmatter
     pub fn upsert_task_md(&self, task_id: &str, title: &str, content: &str) -> Result<PathBuf, ApiError> {
         let md_path = self.get_task_md_path(task_id)?;
         
-        // Create frontmatter
-        let frontmatter = format!(
-            "---\nid: {}\ntitle: {}\n---\n\n",
-            task_id, title
-        );
+        // Get or create a lock for this task
+        let mut task_locks = self.task_locks.lock().map_err(|_| ApiError {
+            code: "LockError".to_string(),
+            message: "Failed to acquire task lock".to_string(),
+            details: None,
+        })?;
+        
+        let task_lock = task_locks
+            .entry(task_id.to_string())
+            .or_insert_with(|| Mutex::new(()));
+        
+        // Lock this task's update
+        let _task_lock_guard = task_lock.lock().map_err(|_| ApiError {
+            code: "LockError".to_string(),
+            message: "Failed to acquire task lock".to_string(),
+            details: None,
+        })?;
         
         // Check if content already has frontmatter
-        let content_without_frontmatter = if content.starts_with("---") {
-            // Find the end of frontmatter block
-            if let Some(end_idx) = content[3..].find("---") {
-                // Extract content after frontmatter (add 6 to account for both "---" delimiters)
-                content[(end_idx + 6)..].trim_start().to_string()
-            } else {
-                // Malformed frontmatter, use full content
-                content.to_string()
-            }
-        } else {
-            content.to_string()
-        };
+        let (existing_frontmatter, content_without_frontmatter) = self.parse_frontmatter(content);
+        
+        // Create or merge frontmatter
+        let mut frontmatter = existing_frontmatter.unwrap_or_default();
+        frontmatter.insert("id".to_string(), task_id.to_string());
+        frontmatter.insert("title".to_string(), title.to_string());
+        frontmatter.insert("fm_version".to_string(), FRONTMATTER_VERSION.to_string());
+        
+        // Generate frontmatter
+        let frontmatter_str = self.generate_frontmatter(&frontmatter);
         
         // Combine frontmatter and content
-        let full_content = format!("{}{}", frontmatter, content_without_frontmatter);
+        let full_content = format!("{}{}", frontmatter_str, content_without_frontmatter);
         
-        // Write to file
-        fs::write(&md_path, full_content).map_err(|e| ApiError {
+        // Atomic write: write to temp file first, then rename
+        let temp_path = md_path.with_extension(".tmp");
+        
+        // Write to temp file
+        let mut temp_file = File::create(&temp_path).map_err(|e| ApiError {
             code: "FileWriteError".to_string(),
-            message: format!("Failed to write task markdown file: {}", e),
+            message: format!("Failed to write temp file: {}", e),
+            details: None,
+        })?;
+        
+        temp_file.write_all(full_content.as_bytes()).map_err(|e| ApiError {
+            code: "FileWriteError".to_string(),
+            message: format!("Failed to write temp file content: {}", e),
+            details: None,
+        })?;
+        
+        // Flush and sync to disk
+        temp_file.flush().map_err(|e| ApiError {
+            code: "FileWriteError".to_string(),
+            message: format!("Failed to flush temp file: {}", e),
+            details: None,
+        })?;
+        
+        // Atomic rename
+        fs::rename(&temp_path, &md_path).map_err(|e| ApiError {
+            code: "FileRenameError".to_string(),
+            message: format!("Failed to rename temp file: {}", e),
             details: None,
         })?;
         

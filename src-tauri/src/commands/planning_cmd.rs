@@ -307,3 +307,28 @@ pub async fn planning_set_ui_state(
     
     Ok(ApiResponse::ok(()))
 }
+
+// Delete a task
+#[tauri::command]
+pub async fn planning_delete_task(
+    task_id: String,
+    vault_state: State<'_, VaultState>,
+    app_handle: AppHandle,
+) -> Result<ApiResponse<()>, ApiError> {
+    let vault_root = vault_state.root.lock()?;
+    let vault_path = match vault_root.as_ref() {
+        Some(path) => path,
+        None => {
+            return Err(ApiError {
+                code: "VaultNotSelected".to_string(),
+                message: "Vault not selected".to_string(),
+                details: None,
+            });
+        }
+    };
+    
+    let mut service = PlanningService::new(&app_handle, vault_path)?;
+    service.delete_task(&task_id)?;
+    
+    Ok(ApiResponse::ok(()))
+}

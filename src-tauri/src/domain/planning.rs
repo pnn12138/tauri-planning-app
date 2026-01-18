@@ -5,18 +5,24 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {
-    High,
-    Medium,
-    Low,
+    #[serde(alias = "p0")]
+    Urgent, // P0
+    #[serde(alias = "p1")]
+    High,   // P1
+    #[serde(alias = "p2")]
+    Medium, // P2
+    #[serde(alias = "p3")]
+    Low,    // P3
 }
 
 impl From<&str> for TaskPriority {
     fn from(s: &str) -> Self {
         match s {
-            "high" => TaskPriority::High,
-            "medium" => TaskPriority::Medium,
-            "low" => TaskPriority::Low,
-            _ => TaskPriority::Medium,
+            "p0" | "urgent" => TaskPriority::Urgent,
+            "p1" | "high" => TaskPriority::High,
+            "p2" | "medium" => TaskPriority::Medium,
+            "p3" | "low" => TaskPriority::Low,
+            _ => TaskPriority::Low, // 默认低优先级 P3
         }
     }
 }
@@ -24,9 +30,10 @@ impl From<&str> for TaskPriority {
 impl Display for TaskPriority {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskPriority::High => write!(f, "high"),
-            TaskPriority::Medium => write!(f, "medium"),
-            TaskPriority::Low => write!(f, "low"),
+            TaskPriority::Urgent => write!(f, "p0"),
+            TaskPriority::High => write!(f, "p1"),
+            TaskPriority::Medium => write!(f, "p2"),
+            TaskPriority::Low => write!(f, "p3"),
         }
     }
 }

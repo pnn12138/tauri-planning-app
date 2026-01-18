@@ -16,11 +16,12 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
   // Initial draft state (仅包含Step1字段)
   const initialDraft: TaskCreateDraftStep1 = {
     title: '',
+    description: '',
     status: safeDefaultStatus as 'backlog' | 'todo' | 'done',
-    priority: undefined,
+    priority: 'p3',
     tags: [],
-    scheduledDate: undefined,
-    dueDate: undefined,
+    dueDateTime: undefined,
+    estimateMin: undefined,
     autoCreateNote: true, // 默认自动创建task note
     newTagInput: '',
   };
@@ -50,7 +51,7 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
     // Clear API error when user edits the form
     setApiError(null);
 
-    if (patch.dueDate !== undefined || patch.status !== undefined) {
+    if (patch.dueDateTime !== undefined || patch.status !== undefined) {
       setDueDateError('');
     }
   };
@@ -204,12 +205,26 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
     setError('');
   };
 
+  // 处理键盘事件
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
   // 如果modal未打开，不渲染
   if (!open) return null;
 
   return (
-    <div className="task-create-modal-overlay">
-      <div className="task-create-modal">
+    <div className="task-create-modal-overlay" onClick={handleClose}>
+      <div className="task-create-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="task-create-modal-header">
           <div className="task-create-modal-header-left">
@@ -249,86 +264,103 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
             {getFieldError('title') && <div className="task-create-form-error">{getFieldError('title')}</div>}
           </div>
 
+          {/* Description Input */}
+          <div className="task-create-form-group">
+            <label className="task-create-form-label">任务描述</label>
+            <textarea
+              className="task-create-form-input task-create-form-description"
+              placeholder="添加详细描述..."
+              value={draft.description || ''}
+              onChange={(e) => updateDraft({ description: e.target.value })}
+              disabled={isSubmitting}
+            />
+          </div>
+
           {/* Metadata Grid */}
           <div className="task-create-metadata-grid">
-            {/* Kanban Status (仅包含backlog/todo/done) */}
+            {/* Estimate Time */}
             <div className="task-create-form-group">
               <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">view_kanban</span>
-                所属看板
+                <span className="material-symbols-outlined task-create-label-icon">timer</span>
+                预估耗时
               </label>
-              <select
-                className="task-create-form-select"
-                value={draft.status}
-                onChange={(e) => updateDraft({ status: e.target.value as 'backlog' | 'todo' | 'done' })}
-                disabled={isSubmitting}
-              >
-                <option value="backlog">待排期 (Backlog)</option>
-                <option value="todo">待做 (To Do)</option>
-                <option value="done">已完成 (Done)</option>
-              </select>
-            </div>
-
-            {/* Priority */}
-            <div className="task-create-form-group">
-              <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">priority_high</span>
-                优先级
-              </label>
-              <select
-                className="task-create-form-select"
-                value={draft.priority || ''}
-                onChange={(e) => updateDraft({ priority: e.target.value as any || undefined })}
-                disabled={isSubmitting}
-              >
-                <option value="">无</option>
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
-              </select>
-            </div>
-
-            {/* Scheduled Start Date */}
-            <div className="task-create-form-group">
-              <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">event</span>
-                加入日程
-              </label>
-              <div className="task-create-date-input-container">
+              <div className="task-create-time-input-container">
                 <input
-                  type="date"
-                  className="task-create-form-input task-create-date-input"
-                  value={draft.scheduledDate || ''}
-                  onChange={(e) => updateDraft({ scheduledDate: e.target.value || undefined })}
+                  type="number"
+                  className="task-create-form-input task-create-time-input"
+                  placeholder="输入预计时间"
+                  value={draft.estimateMin || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    updateDraft({ estimateMin: value ? parseInt(value, 10) : undefined });
+                  }}
                   disabled={isSubmitting}
+                  min="1"
+                  step="5"
                 />
+                <span className="task-create-time-unit">分钟</span>
               </div>
             </div>
 
             {/* Due Date */}
             <div className="task-create-form-group">
               <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">calendar_today</span>
+                <span className="material-symbols-outlined task-create-label-icon">event_busy</span>
                 截止日期
               </label>
-              <div className="task-create-date-input-container">
+              <div className="task-create-datetime-input-container">
                 <input
-                  type="date"
-                  className={`task-create-form-input task-create-date-input ${dueDateError ? 'error' : ''}`}
-                  value={draft.dueDate || ''}
-                  onChange={(e) => updateDraft({ dueDate: e.target.value || undefined })}
+                  type="datetime-local"
+                  className={`task-create-form-input ${dueDateError ? 'error' : ''}`}
+                  value={draft.dueDateTime || ''}
+                  onChange={(e) => updateDraft({ dueDateTime: e.target.value || undefined })}
                   disabled={isSubmitting}
+                  placeholder="选择截止时间"
                 />
               </div>
               {dueDateError && <div className="task-create-form-error">{dueDateError}</div>}
               {getFieldError('due_date') && <div className="task-create-form-error">{getFieldError('due_date')}</div>}
             </div>
           </div>
+
+          {/* Priority */}
+          <div className="task-create-form-group">
+            <label className="task-create-form-label">
+              <span className="material-symbols-outlined task-create-label-icon">flag</span>
+              优先级
+            </label>
+            <div className="task-create-priority-options">
+              {
+                [
+                  { value: 'p0', label: 'P0', color: 'priority-urgent' },
+                  { value: 'p1', label: 'P1', color: 'priority-high' },
+                  { value: 'p2', label: 'P2', color: 'priority-med' },
+                  { value: 'p3', label: 'P3', color: 'priority-low' }
+                ].map((option) => (
+                  <label key={option.value} className="task-create-priority-option">
+                    <input
+                      type="radio"
+                      className="task-create-priority-radio"
+                      name="priority"
+                      value={option.value}
+                      checked={draft.priority === option.value}
+                      onChange={(e) => updateDraft({ priority: e.target.value as 'p0' | 'p1' | 'p2' | 'p3' })}
+                      disabled={isSubmitting}
+                    />
+                    <div className="task-create-priority-option-content">
+                      <div className={`task-create-priority-dot ${option.color}`}></div>
+                      <span>{option.label}</span>
+                    </div>
+                  </label>
+                ))
+              }
+            </div>
+          </div>
           
           {/* Tags Input */}
           <div className="task-create-form-group">
             <label className="task-create-form-label">
-              <span className="material-symbols-outlined task-create-label-icon">label</span>
+              <span className="material-symbols-outlined task-create-label-icon">sell</span>
               标签
             </label>
             <div className="task-create-tags-container">

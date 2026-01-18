@@ -575,3 +575,34 @@ export async function reorderTasks(tasks: any[]) {
     }
   }, 100);
 }
+
+// Delete a task
+export async function deleteTask(taskId: string) {
+  if (isTaskInFlight(taskId)) {
+    throw new Error('该任务正在处理中，请稍后再试');
+  }
+  
+  setTaskInFlight(taskId, true);
+  saveSnapshot();
+  
+  try {
+    // 乐观更新：先从本地状态中删除任务
+    removeTaskFromLocalState(taskId);
+    
+    // 调用API删除任务
+    await planningApi.planningDeleteTask(taskId);
+    
+    // 后台触发一次refreshToday()兜底对齐
+    setTimeout(() => {
+      const state = getPlanningStoreState();
+      if (state.todayData) {
+        reloadTodayData(state.todayData.today);
+      }
+    }, 100);
+  } catch (error) {
+    rollback();
+    handleApiError(error, taskId, '删除任务');
+  } finally {
+    setTaskInFlight(taskId, false);
+  }
+}

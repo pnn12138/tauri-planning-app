@@ -1071,6 +1071,7 @@ button.ghost.is-danger {
   display: flex;
   flex: 1;
   overflow-x: hidden;
+  align-items: stretch;
 }
 
 /* Timeline Sidebar */
@@ -1081,6 +1082,7 @@ button.ghost.is-danger {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .timeline-header {
@@ -1147,11 +1149,153 @@ button.ghost.is-danger {
   position: relative;
 }
 
+/* 回到现在按钮 */
+.timeline-scroll-to-now-btn {
+  position: sticky;
+  top: 16px;
+  left: 16px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.timeline-scroll-to-now-btn:hover {
+  background-color: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* 时间轴分层 */
+.timeline-container {
+  position: relative;
+  min-height: 1200px;
+}
+
+.timeline-ticks-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+.timeline-blocks-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* 时间刻度 */
+.timeline-tick {
+  display: flex;
+  height: 80px;
+  position: relative;
+}
+
+/* 时间块基础样式 */
+.timeline-block {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* 已排期块样式 */
+.timeline-block.busy {
+  background-color: #eff6ff;
+  border-left: 2px solid var(--primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-block.busy:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+/* 空闲块样式 */
+.timeline-free-block {
+  background-color: rgba(248, 250, 252, 0.8);
+  border: 1px dashed #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-free-block:hover {
+  background-color: rgba(239, 246, 255, 0.6);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.timeline-free-block-content {
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.timeline-free-block-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-weight: 500;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.timeline-free-block-time {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+/* 时间块内部结构 */
+.timeline-block-time {
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.timeline-block-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 当前时间指示器 */
+.timeline-now-indicator {
+  position: absolute;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+  pointer-events: none;
+  transition: top 0.5s ease;
+}
+
 .timeline-container {
   position: relative;
   min-height: 1000px;
 }
 
+/* Timeline Now Indicator */
 .timeline-now-indicator {
   position: absolute;
   top: 240px;
@@ -1160,6 +1304,146 @@ button.ghost.is-danger {
   align-items: center;
   z-index: 10;
   pointer-events: none;
+}
+
+/* 快速排期弹窗样式 */
+.quick-schedule-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.quick-schedule-modal {
+  background-color: var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 400px;
+  padding: 20px;
+}
+
+.quick-schedule-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.quick-schedule-modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.quick-schedule-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.quick-schedule-close-btn:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.quick-schedule-modal-content {
+  margin-bottom: 20px;
+}
+
+.quick-schedule-form-group {
+  margin-bottom: 16px;
+}
+
+.quick-schedule-form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.quick-schedule-input,
+.quick-schedule-select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: white;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.quick-schedule-input:focus,
+.quick-schedule-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.quick-schedule-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.quick-schedule-time-display {
+  padding: 10px;
+  background-color: var(--hover-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.quick-schedule-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.quick-schedule-cancel-btn {
+  padding: 8px 16px;
+  background-color: var(--hover-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-schedule-cancel-btn:hover {
+  background-color: var(--border);
+}
+
+.quick-schedule-save-btn {
+  padding: 8px 16px;
+  background-color: var(--primary);
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-schedule-save-btn:hover {
+  background-color: var(--primary-hover);
 }
 
 .timeline-now-time {
@@ -1310,6 +1594,7 @@ button.ghost.is-danger {
   display: flex;
   flex-direction: column;
   background-color: #f8fafc;
+  min-height: 0;
 }
 
 .kanban-header {
@@ -1611,13 +1896,54 @@ button.ghost.is-danger {
   border-radius: 4px;
 }
 
-/* Timeline drop target highlight */
-.timeline-hour-line.dragging-over {
-  background-color: rgba(59, 130, 246, 0.2) !important;
-  border: 2px dashed #3b82f6 !important;
-  border-radius: 8px !important;
-  transition: all 0.2s ease;
-  padding: 8px 0;
+/* Drag Indicator */
+.timeline-drag-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  z-index: 5;
+  transition: opacity 0.3s ease;
+}
+
+.timeline-drag-time {
+  position: absolute;
+  left: -80px;
+  top: -12px;
+  background-color: #ef4444;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  z-index: 6;
+}
+
+.timeline-drag-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #ef4444;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+  z-index: 5;
+}
+
+.timeline-drag-dot {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+  z-index: 6;
 }
 
 /* Timeline drop target highlight for invalid drop */
@@ -1643,18 +1969,7 @@ button.ghost.is-danger {
   opacity: 0.7;
 }
 
-/* Visual indicator for dragging over timeline */
-.timeline-drag-indicator {
-  position: absolute;
-  top: -8px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: #3b82f6;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
-  z-index: 999;
-  opacity: 0.8;
-}
+
 
 /* Valid drop target styles */
 .dragging-over {
@@ -1719,9 +2034,9 @@ button.ghost.is-danger {
   background: rgba(15, 23, 42, 0.4);
   z-index: 1001;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 72px 16px 24px;
+  padding: 24px 16px;
 }
 
 .task-edit-modal {
@@ -1881,19 +2196,27 @@ button.ghost.is-danger {
   color: #475569;
 }
 
-.task-priority.high {
-  background-color: #fee2e2;
-  color: #991b1b;
+.task-priority.p0 {
+  background-color: rgba(225, 29, 72, 0.15);
+  color: #E11D48;
 }
 
-.task-priority.medium {
-  background-color: #fef3c7;
-  color: #92400e;
+.task-priority.high,
+.task-priority.p1 {
+  background-color: rgba(242, 108, 108, 0.15);
+  color: #F26C6C;
 }
 
-.task-priority.low {
-  background-color: #d1fae5;
-  color: #065f46;
+.task-priority.medium,
+.task-priority.p2 {
+  background-color: rgba(251, 191, 36, 0.25);
+  color: #F59E0B;
+}
+
+.task-priority.low,
+.task-priority.p3 {
+  background-color: rgba(77, 171, 77, 0.15);
+  color: #4DAB4D;
 }
 
 .task-tags {
@@ -1947,9 +2270,83 @@ button.ghost.is-danger {
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 10px;
-  font-weight: bold;
-  border: 2px solid white;
+}
+
+/* 删除确认对话框样式 */
+.delete-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1002;
+}
+
+.delete-confirm-modal {
+  width: min(400px, 90%);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.15);
+  padding: 24px;
+  text-align: center;
+}
+
+.delete-confirm-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 16px;
+}
+
+.delete-confirm-content {
+  font-size: 14px;
+  color: #64748b;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.delete-confirm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.delete-confirm-cancel {
+  padding: 10px 20px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.delete-confirm-cancel:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.delete-confirm-delete {
+  padding: 10px 20px;
+  border: 1px solid #ef4444;
+  background: #ef4444;
+  color: #ffffff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.delete-confirm-delete:hover {
+  background: #dc2626;
+  border-color: #dc2626;
 }
 
 .task-timer {
@@ -2079,8 +2476,8 @@ button.ghost.is-danger {
   flex: 1;
   min-height: 0;
   display: block;
-  overflow: auto;
   background-color: var(--background);
+  overflow: hidden;
 }
 
 .home-card {
@@ -2093,6 +2490,7 @@ button.ghost.is-danger {
   height: 100%;
   width: 100%;
   overflow-x: hidden;
+  min-height: 0;
 }
 
 /* Tags Editor Styles */

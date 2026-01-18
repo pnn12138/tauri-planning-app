@@ -5,6 +5,7 @@
   --task-create-primary: #26bbd9;
   --task-create-background-light: #f6f8f8;
   --task-create-background-dark: #121e20;
+  --task-create-priority-urgent: #E11D48;
   --task-create-priority-high: #F26C6C;
   --task-create-priority-med: #FFC74D;
   --task-create-priority-low: #4DAB4D;
@@ -218,6 +219,15 @@
   padding: 16px;
 }
 
+/* Description Input */
+.task-create-form-description {
+  min-height: 140px;
+  resize: vertical;
+  padding: 16px;
+  font-family: inherit;
+  line-height: 1.6;
+}
+
 /* Textarea */
 .task-create-form-textarea {
   width: 100%;
@@ -360,8 +370,35 @@
   }
 }
 
+/* Time Input */
+.task-create-time-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.task-create-time-input {
+  padding-right: 48px;
+}
+
+.task-create-time-unit {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: var(--task-create-muted-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-unit {
+    color: var(--task-create-muted-dark);
+  }
+}
+
 /* Date Input */
-.task-create-date-input-container {
+.task-create-date-input-container,
+.task-create-date-input-wrapper {
   position: relative;
 }
 
@@ -369,19 +406,153 @@
   padding: 12px 16px;
 }
 
-/* Priority Group */
-.task-create-priority-group {
-  margin-top: 8px;
+/* DateTime Input Container */
+.task-create-datetime-input-container {
+  display: block;
 }
 
+/* Time Selector */
+.task-create-time-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.task-create-time-icon {
+  font-size: 18px;
+  color: var(--task-create-muted-light);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-icon {
+    color: var(--task-create-muted-dark);
+  }
+}
+
+/* Time Inputs Container */
+.task-create-time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+/* Time Trigger */
+.task-create-time-trigger {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.task-create-time-trigger:hover {
+  background-color: var(--task-create-input-bg-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-trigger:hover {
+    background-color: var(--task-create-input-bg-dark);
+  }
+}
+
+/* Time Dropdown */
+.task-create-time-dropdown {
+  position: absolute;
+  top: 100%;
+  left: auto;
+  right: 0;
+  margin-top: 8px;
+  padding: 16px;
+  background: var(--task-create-surface-light);
+  border: 1px solid var(--task-create-border-light);
+  border-radius: 12px;
+  box-shadow: var(--task-create-shadow-hover);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: task-create-fade-in 0.2s ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-dropdown {
+    background: var(--task-create-surface-dark);
+    border-color: var(--task-create-border-dark);
+  }
+}
+
+/* Time Select */
+.task-create-time-select {
+  padding: 12px 40px 12px 16px;
+  min-width: 100px;
+  background: var(--task-create-input-bg-light) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e") no-repeat right 12px center;
+  background-size: 16px;
+  border: 1px solid var(--task-create-border-light);
+  border-radius: 12px;
+  font-size: 16px;
+  color: var(--task-create-text-light);
+  transition: all 0.2s ease;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.task-create-time-select:focus {
+  border-color: var(--task-create-primary);
+  box-shadow: 0 0 0 3px rgba(38, 187, 217, 0.1);
+}
+
+.task-create-time-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-select {
+    background-color: var(--task-create-input-bg-dark);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    border-color: var(--task-create-border-dark);
+    color: var(--task-create-text-dark);
+  }
+  
+  .task-create-time-select:focus {
+    box-shadow: 0 0 0 3px rgba(38, 187, 217, 0.2);
+  }
+}
+
+/* Time Separator */
+.task-create-time-separator {
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--task-create-muted-light);
+  flex-shrink: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-create-time-separator {
+    color: var(--task-create-muted-dark);
+  }
+}
+
+/* Ensure time selector is positioned relative for absolute dropdown */
+.task-create-time-selector {
+  position: relative;
+}
+
+/* Priority Options */
 .task-create-priority-options {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  margin-top: 8px;
 }
 
 .task-create-priority-option {
   cursor: pointer;
+  position: relative;
 }
 
 .task-create-priority-radio {
@@ -400,6 +571,7 @@
   border-radius: 12px;
   background: var(--task-create-surface-light);
   transition: all 0.2s ease;
+  min-height: 44px;
 }
 
 .task-create-priority-option:hover .task-create-priority-option-content {
@@ -439,16 +611,24 @@
   box-shadow: 0 0 6px currentColor;
 }
 
-.task-create-priority-dot.high {
+.task-create-priority-dot.priority-urgent {
+  background: var(--task-create-priority-urgent);
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.5);
+}
+
+.task-create-priority-dot.priority-high {
   background: var(--task-create-priority-high);
+  box-shadow: 0 0 6px rgba(242, 108, 108, 0.5);
 }
 
-.task-create-priority-dot.medium {
+.task-create-priority-dot.priority-med {
   background: var(--task-create-priority-med);
+  box-shadow: 0 0 6px rgba(255, 199, 77, 0.5);
 }
 
-.task-create-priority-dot.low {
+.task-create-priority-dot.priority-low {
   background: var(--task-create-priority-low);
+  box-shadow: 0 0 6px rgba(77, 171, 77, 0.5);
 }
 
 /* Tags Group */

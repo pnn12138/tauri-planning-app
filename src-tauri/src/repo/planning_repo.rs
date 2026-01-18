@@ -3,6 +3,7 @@ use rusqlite::params;
 use rusqlite::{Connection, OptionalExtension, Result};
 use serde_json;
 use tauri::AppHandle;
+use tracing::{info, span, Level};
 use uuid::Uuid;
 
 use crate::domain::planning::{DayLog, KanbanTasks, ReorderTaskInput, Task, TaskPriority, TaskStatus, Timer, TodayDTO};
@@ -710,6 +711,43 @@ impl PlanningRepo {
                 }
             }
         }
+        
+        Ok(())
+    }
+    
+    // Delete a task and its associated timers
+    pub fn delete_task(&mut self, task_id: &str) -> Result<(), ApiError> {
+        let span = span!(Level::INFO, "planning.delete_task", task_id = task_id);
+        let _enter = span.enter();
+        
+        // First, check if task exists
+        if self.get_task(task_id)?.is_none() {
+            return Err(ApiError {
+                code: "NotFound".to_string(),
+                message: format!("Task with id {} not found", task_id),
+                details: None,
+            });
+        }
+        
+        // Start a transaction to ensure atomicity
+        let transaction = self.conn.transaction()?;
+        
+        // Delete associated timers
+        transaction.execute(
+            "DELETE FROM task_timer WHERE task_id = ?",
+            [task_id],
+        )?;
+        
+        // Delete the task
+        transaction.execute(
+            "DELETE FROM tasks WHERE id = ?",
+            [task_id],
+        )?;
+        
+        // Commit the transaction
+        transaction.commit()?;
+        
+        info!(target: "planning", "delete_task succeeded: task_id={}", task_id);
         
         Ok(())
     }
