@@ -2,7 +2,7 @@
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
 // Task priority enum
-export type TaskPriority = 'high' | 'medium' | 'low';
+export type TaskPriority = 'p0' | 'p1' | 'p2' | 'p3';
 
 // Task model
 export interface Task {

@@ -3,11 +3,12 @@ import { TaskStatus, TaskPriority } from '../../shared/types/planning';
 // Step1 专用类型 - 仅包含Step1实现的字段
 export type TaskCreateDraftStep1 = {
   title: string;
+  description?: string;
   status: 'backlog' | 'todo' | 'done';
-  priority?: TaskPriority;
+  priority: 'p0' | 'p1' | 'p2' | 'p3';
   tags?: string[];
-  scheduledDate?: string; // YYYY-MM-DD 格式
-  dueDate?: string; // YYYY-MM-DD 格式
+  dueDateTime?: string; // ISO datetime-local format YYYY-MM-DDTHH:mm
+  estimateMin?: number;
   autoCreateNote?: boolean; // 是否自动创建task note
   newTagInput?: string; // 用于输入新标签的临时字段
 };
@@ -17,7 +18,7 @@ export type TaskDraft = {
   title: string;
   description: string;
   status: TaskStatus;
-  priority: 'high' | 'medium' | 'low';
+  priority: 'p0' | 'p1' | 'p2' | 'p3';
   tags: string[];
   dueDate?: string;
   newTagInput: string;
@@ -41,20 +42,29 @@ export interface CreateTaskInput {
 
 // Convert Step1 UI draft to API input
 export const toCreateTaskInputStep1 = (draft: TaskCreateDraftStep1): CreateTaskInput => {
+  // 字段归一化处理
+  const normalizedTags = draft.tags
+    ? draft.tags.filter(tag => tag.trim() !== '').filter((value, index, self) => self.indexOf(value) === index)
+    : undefined;
+  
+  // 处理截止日期时间
+  let dueDate: string | undefined;
+  if (draft.dueDateTime) {
+    // dueDateTime 格式为 YYYY-MM-DDTHH:mm，直接转换为 ISO 字符串
+    const date = new Date(draft.dueDateTime);
+    dueDate = date.toISOString();
+  }
+  
   const result: CreateTaskInput = {
-    title: draft.title,
+    title: draft.title.trim(),
+    description: draft.description?.trim() || undefined,
     status: draft.status,
     priority: draft.priority,
-    tags: draft.tags && draft.tags.length > 0 ? draft.tags : undefined,
-    due_date: draft.dueDate,
+    tags: normalizedTags && normalizedTags.length > 0 ? normalizedTags : undefined,
+    due_date: dueDate,
     board_id: "default",
+    estimate_min: draft.estimateMin,
   };
-  
-  // 只有当选择了日期时才添加 scheduled_start
-  // 使用本地时间语义，不添加Z后缀（Z表示UTC时间）
-  if (draft.scheduledDate) {
-    result.scheduled_start = `${draft.scheduledDate}T09:00:00.000`;
-  }
   
   return result;
 };

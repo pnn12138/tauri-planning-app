@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use chrono::Utc;
 use tauri::AppHandle;
-use tracing::{error, info, span, Level};
+use tracing::{error, info, span, warn, Level};
 use uuid::Uuid;
 
 use crate::domain::planning::{CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput, Task, TaskStatus, TodayDTO, UpdateTaskInput};
@@ -196,19 +197,50 @@ impl PlanningService {
                 input.estimate_min,
                 input.scheduled_start.as_deref(),
                 input.scheduled_end.as_deref(),
-                due_date_update,
+                due_date_update.clone(),
                 board_id,
                 input.note_path.as_deref(),
                 input.archived,
                 completed_at_update,
             )?;
             
-            // If title changed, update markdown file
-            if let Some(new_title) = &input.title {
-                // Read current content
-                let current_content = self.md_repo.read_task_md(&updated_task.id)?;
-                // Update with new title
-                self.md_repo.upsert_task_md(&updated_task.id, new_title, &current_content)?;
+            // Prepare frontmatter updates
+            let mut frontmatter_updates = HashMap::new();
+            
+            // Always update updated_at
+            frontmatter_updates.insert("updated_at".to_string(), updated_task.updated_at.clone());
+            
+            // Update other fields if they changed
+            if input.title.is_some() {
+                frontmatter_updates.insert("title".to_string(), updated_task.title.clone());
+            }
+            
+            if input.status.is_some() {
+                frontmatter_updates.insert("status".to_string(), updated_task.status.to_string());
+            }
+            
+            if input.priority.is_some() {
+                frontmatter_updates.insert("priority".to_string(), updated_task.priority.map(|p| p.to_string()).unwrap_or("p3".to_string()));
+            }
+            
+            if labels.is_some() {
+                let tags_str = format!("[{}]", updated_task.tags.clone().unwrap_or_default().join(", "));
+                frontmatter_updates.insert("tags".to_string(), tags_str);
+            }
+            
+            if input.estimate_min.is_some() {
+                let estimate_str = updated_task.estimate_min.map(|min| min.to_string()).unwrap_or("null".to_string());
+                frontmatter_updates.insert("estimate_min".to_string(), estimate_str);
+            }
+            
+            if due_date_update.is_some() {
+                let due_date_str = updated_task.due_date.as_deref().unwrap_or("null");
+                frontmatter_updates.insert("due_date".to_string(), due_date_str.to_string());
+            }
+            
+            // Sync to markdown file
+            if !frontmatter_updates.is_empty() {
+                self.sync_task_to_md(&updated_task.id, &frontmatter_updates)?;
             }
             
             Ok(())
@@ -262,6 +294,15 @@ impl PlanningService {
             }
             
             self.db_repo.mark_task_done(task_id)?;
+            
+            // Sync status change to markdown file
+            let now = Utc::now().to_rfc3339();
+            let mut frontmatter_updates = HashMap::new();
+            frontmatter_updates.insert("status".to_string(), "done".to_string());
+            frontmatter_updates.insert("updated_at".to_string(), now.clone());
+            frontmatter_updates.insert("completed_at".to_string(), now);
+            self.sync_task_to_md(task_id, &frontmatter_updates)?;
+            
             Ok(())
         })();
         
@@ -308,6 +349,15 @@ impl PlanningService {
             }
             
             self.db_repo.reopen_task(task_id)?;
+            
+            // Sync status change to markdown file
+            let now = Utc::now().to_rfc3339();
+            let mut frontmatter_updates = HashMap::new();
+            frontmatter_updates.insert("status".to_string(), "todo".to_string());
+            frontmatter_updates.insert("updated_at".to_string(), now);
+            frontmatter_updates.insert("completed_at".to_string(), "null".to_string());
+            self.sync_task_to_md(task_id, &frontmatter_updates)?;
+            
             Ok(())
         })();
         
@@ -362,6 +412,14 @@ impl PlanningService {
             }
             
             self.db_repo.start_task(task_id)?;
+            
+            // Sync status change to markdown file
+            let now = Utc::now().to_rfc3339();
+            let mut frontmatter_updates = HashMap::new();
+            frontmatter_updates.insert("status".to_string(), "doing".to_string());
+            frontmatter_updates.insert("updated_at".to_string(), now);
+            self.sync_task_to_md(task_id, &frontmatter_updates)?;
+            
             Ok(())
         })();
         
@@ -408,6 +466,14 @@ impl PlanningService {
             }
             
             self.db_repo.stop_task(task_id)?;
+            
+            // Sync status change to markdown file
+            let now = Utc::now().to_rfc3339();
+            let mut frontmatter_updates = HashMap::new();
+            frontmatter_updates.insert("status".to_string(), "todo".to_string());
+            frontmatter_updates.insert("updated_at".to_string(), now);
+            self.sync_task_to_md(task_id, &frontmatter_updates)?;
+            
             Ok(())
         })();
         
@@ -502,24 +568,39 @@ impl PlanningService {
             
             // If content is empty, create a new note with template
             if current_content.is_empty() {
-                // Create template content
-                let mut template = format!(
-                    "# {}\n\n- Status: {}\n",
+                // Create template with improved structure
+                let template = format!(
+                    "---
+fm_version: 2
+id: {}
+title: {}
+status: {}
+priority: {}
+tags: {}
+estimate_min: {}
+due_date: {}
+created_at: {}
+updated_at: {}
+---
+
+<!-- 
+Frontmatter 由系统维护；正文为你的笔记区。
+-->
+
+## Notes
+
+- 
+",
+                    task.id,
                     task.title,
-                    task.status
+                    task.status,
+                    task.priority.map(|p| p.to_string()).unwrap_or("p3".to_string()),
+                    task.tags.map(|tags| format!("[{}]", tags.join(", "))).unwrap_or("[]".to_string()),
+                    task.estimate_min.map(|min| min.to_string()).unwrap_or("null".to_string()),
+                    task.due_date.as_deref().unwrap_or("null"),
+                    task.created_at,
+                    task.updated_at
                 );
-                
-                // Add tags if they exist
-                if let Some(tags) = &task.tags {
-                    if !tags.is_empty() {
-                        template.push_str(&format!("- Tags: {}\n", tags.join(", ")));
-                    }
-                }
-                
-                // Add scheduled time if it exists
-                if let Some(scheduled) = &task.scheduled_start {
-                    template.push_str(&format!("- Scheduled: {}\n", scheduled));
-                }
                 
                 // Write template to file
                 self.md_repo.upsert_task_md(&task.id, &task.title, &template)?;
@@ -559,7 +640,36 @@ impl PlanningService {
         let _enter = span.enter();
         
         let start = std::time::Instant::now();
-        let result = self.db_repo.reorder_tasks(tasks);
+        
+        let result = (|| -> Result<(), ApiError> {
+            // First update tasks in database
+            self.db_repo.reorder_tasks(tasks.clone())?;
+            
+            // Then sync each task to markdown file
+            for task in tasks {
+                // Get the updated task from database
+                let updated_task = self.get_task_or_not_found(&task.id)?;
+                
+                // Prepare frontmatter updates
+                let mut frontmatter_updates = HashMap::new();
+                frontmatter_updates.insert("updated_at".to_string(), updated_task.updated_at.clone());
+                
+                // Update status if it changed
+                if let Some(status) = task.status {
+                    frontmatter_updates.insert("status".to_string(), status.to_string());
+                }
+                
+                // Always include current status and priority
+                frontmatter_updates.insert("status".to_string(), updated_task.status.to_string());
+                frontmatter_updates.insert("priority".to_string(), updated_task.priority.map(|p| p.to_string()).unwrap_or("p3".to_string()));
+                
+                // Sync to markdown file
+                self.sync_task_to_md(&updated_task.id, &frontmatter_updates)?;
+            }
+            
+            Ok(())
+        })();
+        
         let elapsed = start.elapsed();
         
         match &result {
@@ -584,5 +694,53 @@ impl PlanningService {
     #[allow(dead_code)]
     pub fn set_ui_state(&self, vault_id: &str, partial_state_json: &str) -> Result<(), ApiError> {
         self.db_repo.set_ui_state(vault_id, partial_state_json)
+    }
+    
+    // Sync task changes to markdown file
+    pub fn sync_task_to_md(&self, task_id: &str, frontmatter_updates: &HashMap<String, String>) -> Result<(), ApiError> {
+        self.md_repo.update_task_frontmatter(task_id, frontmatter_updates)
+    }
+    
+    // Delete a task and its associated resources
+    pub fn delete_task(&mut self, task_id: &str) -> Result<(), ApiError> {
+        let op_id = Uuid::new_v4().to_string();
+        let span = span!(Level::INFO, "planning.delete_task", op_id = op_id, task_id = task_id);
+        let _enter = span.enter();
+        
+        let start = std::time::Instant::now();
+        
+        let result = (|| -> Result<(), ApiError> {
+            // Check if task exists
+            self.get_task_or_not_found(task_id)?;
+            
+            // Delete task from database
+            self.db_repo.delete_task(task_id)?;
+            
+            // Delete associated markdown file if it exists
+            match self.md_repo.delete_task_md(task_id) {
+                Ok(_) => {
+                    info!(target: "planning", "delete_task_md succeeded: task_id={}", task_id);
+                },
+                Err(e) => {
+                    // Log warning but don't fail the entire deletion
+                    warn!(target: "planning", "delete_task_md failed: task_id={}, error={:?}", task_id, e);
+                }
+            }
+            
+            Ok(())
+        })();
+        
+        let elapsed = start.elapsed();
+        
+        match &result {
+            Ok(_) => {
+                info!(target: "planning", "delete_task succeeded: task_id={}, elapsed_ms={}", task_id, elapsed.as_millis());
+            },
+            Err(e) => {
+                error!(target: "planning", "delete_task failed: task_id={}, error_code={}, error_message={}, elapsed_ms={}", task_id, &e.code, &e.message, elapsed.as_millis());
+            }
+        }
+        
+        result
     }
 }

@@ -134,6 +134,11 @@ export async function planningGetUiState(
 export async function planningSetUiState(vaultId: string, partialState: Record<string, any>): Promise<void> {
   return invokeApi<void>("planning_set_ui_state", { 
     vaultId, 
-    partial_state_json: JSON.stringify(partialState) 
+    partialStateJson: JSON.stringify(partialState) 
   });
+}
+
+// Delete a task
+export async function planningDeleteTask(taskId: string): Promise<void> {
+  return invokeApi<void>("planning_delete_task", { taskId });
 }

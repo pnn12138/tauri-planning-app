@@ -199,6 +199,8 @@ Backend provides:
 - Web tab bridge communication
 - Plugin management and execution environment
 - Planning task lifecycle validation (due_date/completed_at, board_id)
+- Frontend scheduling ensures todo tasks include a due date when needed
+- Timeline drag indicator provides the scheduled start time on drop
 - Planning tasks use UTC timestamps for completed_at.
 - Enforce vault boundary for all file operations
 - Provide consistent error responses
