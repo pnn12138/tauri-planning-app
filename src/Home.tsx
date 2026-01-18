@@ -551,6 +551,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         // 1. 准备任务数据
         const scheduledStart = `${yyyymmdd}T${timeStr}`;
         const estimatedEnd = calculateEstimatedEnd(scheduledStart, draggedTask.estimate_min);
+        const scheduleDueDate = draggedTask.due_date || yyyymmdd;
         
         // 2. 检查时间段是否被占用（基于任务时长的精确检查）
         let hasConflict = false;
@@ -589,6 +590,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 status: 'todo', // 将任务状态改为todo，因为已排期
                 scheduled_start: scheduledStart,
                 scheduled_end: estimatedEnd,
+                ...(draggedTask.due_date ? {} : { due_date: scheduleDueDate }),
             });
             
             // 5. 从原列中移除任务（乐观更新）
@@ -1951,7 +1953,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 </SortableContext>
 
                 <DragOverlay>
-                  {draggingTask ? (
+                  {draggingTask && !draggingOverTimeline ? (
                     <div
                       className="task-card-wrapper task-card-drag-overlay"
                       style={draggingSize ? { width: draggingSize.width, height: draggingSize.height } : undefined}
@@ -2067,6 +2069,8 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       estimate_min: quickScheduleDuration,
                       scheduled_start: startDate.toISOString(),
                       scheduled_end: endDate.toISOString(),
+                      due_date: yyyymmdd,
+                      board_id: 'default',
                       order_index: 0,
                     });
                     

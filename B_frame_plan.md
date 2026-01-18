@@ -73,7 +73,7 @@
 - 文件系统能力：扫描目录、读取文件内容、保存文件内容。
 - 安全边界：所有路径必须限定在用户选择的 Vault 内（仅相对路径）。
 - IPC 约束：命令数量小、输入输出结构明确、错误可被前端稳定处理。
-- Planning tasks：backend enforces status-driven constraints (due_date/completed_at) and requires board_id.
+- Planning tasks：backend enforces status-driven constraints (due_date/completed_at) and requires board_id; frontend ensures scheduled tasks moved to todo include a due date and the timeline drag indicator maps to scheduled start.
 - Planning tasks use UTC timestamps for completed_at.
 
 ### 4.3 IPC 交互

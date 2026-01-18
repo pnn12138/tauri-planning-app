@@ -199,8 +199,9 @@ d:\tauri\tauri-planning-app/
 
 ### Planning Tasks
 - **Task Model**: Tasks include description, priority, labels, due date, board id, and status lifecycle fields.
-- **Create Defaults**: New tasks default to `backlog` with required `board_id` and optional `due_date`.
-- **Status Rules**: Backend enforces due-date and completed-at constraints based on status; frontend only prompts.
+- **Create Defaults**: New tasks default to `backlog` with required `board_id` and optional `due_date`; quick schedule creation supplies `board_id` and due date for `todo`.
+- **Status Rules**: Backend enforces due-date and completed-at constraints based on status; frontend ensures timeline scheduling supplies a due date for `todo` when missing.
+- **Timeline Scheduling**: Dragging a task into the timeline shows a red time indicator line; dropping assigns that time as `scheduled_start` and refreshes the timeline data.
 
 ### Plugin System (Phase 2 - In Progress)
 - **Plugin Directory**: `<VAULT>/.yourapp/plugins/<pluginId>/`
