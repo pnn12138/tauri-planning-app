@@ -110,7 +110,7 @@ function App() {
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const [topBarHeight, setTopBarHeight] = useState(0);
   const [vaultRoot, setVaultRoot] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isPluginsOpen, setIsPluginsOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const status = useStatusStore((state) => state.message);

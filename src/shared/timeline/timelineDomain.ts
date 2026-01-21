@@ -33,11 +33,31 @@ export interface NowLine {
   position: number; // Percentage from top (0-100)
 }
 
-// Timeline model interface
-export interface TimelineModel {
+// Day timeline model interface
+export interface DayTimelineModel {
   busyBlocks: BusyBlock[];
   freeBlocks: FreeBlock[];
   nowLine: NowLine;
+}
+
+// Week timeline model interface
+export interface WeekTimelineModel {
+  days: DayTimelineModel[];
+  weekStart: Date;
+  weekEnd: Date;
+}
+
+// Combined timeline model interface
+export type TimelineModel = DayTimelineModel | WeekTimelineModel;
+
+// Helper function to determine if a timeline model is a week view
+export const isWeekTimeline = (model: TimelineModel): model is WeekTimelineModel => {
+  return 'days' in model;
+};
+
+// Helper function to determine if a timeline model is a day view
+export const isDayTimeline = (model: TimelineModel): model is DayTimelineModel => {
+  return 'busyBlocks' in model;
 }
 
 // Convert HH:MM string to minutes since midnight
@@ -156,24 +176,26 @@ export const normalizeEvents = (tasks: Task[], config: TimelineConfig): Task[] =
   return mergedTasks;
 };
 
-// Build timeline model from normalized events
-export const buildTimelineModel = (tasks: Task[], config: TimelineConfig): TimelineModel => {
+// Build day timeline model from normalized events
+const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: Date = new Date()): DayTimelineModel => {
   const { dayStart, dayEnd, minSlotMinutes } = config;
-  const today = new Date();
-  const dayStartDate = createDateForTime(dayStart, today);
-  const dayEndDate = createDateForTime(dayEnd, today);
+  const dayStartDate = createDateForTime(dayStart, baseDate);
+  const dayEndDate = createDateForTime(dayEnd, baseDate);
   const totalMinutes = timeToMinutes(dayEnd) - timeToMinutes(dayStart);
   
-  // Normalize events
-  const normalizedTasks = normalizeEvents(tasks, config);
+  // First, filter tasks to only include those for the specified date
+  const tasksForDate = tasks.filter(task => {
+    if (!task.scheduled_start) return false;
+    const taskStart = new Date(task.scheduled_start);
+    // Check if task is on the same day as baseDate
+    return taskStart.toDateString() === baseDate.toDateString();
+  });
   
-  // Create busy blocks - only for today's tasks
+  // Normalize only the filtered tasks
+  const normalizedTasks = normalizeEvents(tasksForDate, config);
+  
+  // Create busy blocks - all normalized tasks are for the specified date
   let busyBlocks: BusyBlock[] = normalizedTasks
-    .filter(task => {
-      const taskStart = new Date(task.scheduled_start!);
-      // Check if task is on the same day as dayStartDate
-      return taskStart.toDateString() === dayStartDate.toDateString();
-    })
     .map(task => {
       const start = new Date(task.scheduled_start!);
       const end = new Date(task.scheduled_end!);
@@ -273,5 +295,38 @@ export const buildTimelineModel = (tasks: Task[], config: TimelineConfig): Timel
     busyBlocks,
     freeBlocks,
     nowLine,
+  };
+};
+
+// Build week timeline model from tasks
+export const buildTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: Date = new Date(), viewMode: 'day' | 'week' = 'day'): TimelineModel => {
+  if (viewMode === 'day') {
+    return buildDayTimelineModel(tasks, config, baseDate);
+  }
+  
+  // Calculate week start (Monday) and week end (Sunday)
+  const weekStart = new Date(baseDate);
+  const dayOfWeek = weekStart.getDay();
+  // Adjust to Monday as the first day of the week
+  const diff = weekStart.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+  weekStart.setDate(diff);
+  weekStart.setHours(0, 0, 0, 0);
+  
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+  
+  // Generate timeline models for each day of the week
+  const days: DayTimelineModel[] = [];
+  for (let i = 0; i < 7; i++) {
+    const currentDay = new Date(weekStart);
+    currentDay.setDate(weekStart.getDate() + i);
+    days.push(buildDayTimelineModel(tasks, config, currentDay));
+  }
+  
+  return {
+    days,
+    weekStart,
+    weekEnd,
   };
 };

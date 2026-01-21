@@ -3,7 +3,7 @@ import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, 
 import { planningOpenTaskNote } from './features/planning/planning.api';
 import TaskCreateModal from './features/task-create/TaskCreateModal';
 import type { Task } from './shared/types/planning';
-import { buildTimelineModel, TimelineConfig, FreeBlock, BusyBlock } from './shared/timeline/timelineDomain';
+import { buildTimelineModel, TimelineConfig, FreeBlock, BusyBlock, isWeekTimeline, isDayTimeline } from './shared/timeline/timelineDomain';
 
 // Generate vault_id from vaultRoot path (using simple hash for MVP)
 function generateVaultId(vaultRoot: string | null): string {
@@ -57,8 +57,8 @@ type HomeProps = {
 };
 
 // Get current date in Chinese format
-const getCurrentDate = () => {
-  const now = new Date();
+const getCurrentDate = (dateString?: string) => {
+  const now = dateString ? new Date(dateString) : new Date();
   const months = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
   const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
   
@@ -161,8 +161,16 @@ const throttle = <T extends (...args: any[]) => any>(func: T, limit: number): ((
 };
 
 function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
-  const { month, day, weekday, yyyymmdd } = getCurrentDate();
   const [currentTime, setCurrentTime] = useState<string>(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+  
+  // 当前选择的日期，默认为今天
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  
+  // 根据selectedDate获取当前日期信息
+  const { month, day, weekday, yyyymmdd } = getCurrentDate(selectedDate);
+  
+  // 视图模式：日视图/周视图
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   
   // 新建任务相关状态
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -188,6 +196,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   
   // Tags editor related state
   const [isTagsEditorOpen, setIsTagsEditorOpen] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [editingTagsTask, setEditingTagsTask] = useState<Task | null>(null);
   const [tagsEditorInput, setTagsEditorInput] = useState('');
   const [tagsEditorTags, setTagsEditorTags] = useState<string[]>([]);
@@ -248,12 +257,28 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   
   // 获取时间轴数据
   const todayData = usePlanningStore((state) => state.todayData);
-  const timelineTasks = todayData?.timeline || [];
+  // 在周视图中，我们需要所有任务来构建完整的周时间轴
+  const timelineTasks = useMemo(() => {
+    if (!todayData) return [];
+    if (viewMode === 'day') {
+      // 日视图只需要当天的时间轴任务
+      return todayData.timeline;
+    } else {
+      // 周视图需要所有任务（包括看板和时间轴上的任务）
+      return [
+        ...todayData.timeline,
+        ...todayData.kanban.backlog,
+        ...todayData.kanban.todo,
+        ...todayData.kanban.doing,
+        ...todayData.kanban.done
+      ];
+    }
+  }, [todayData, viewMode]);
   
   // 构建时间轴模型
   const timelineModel = useMemo(() => {
-    return buildTimelineModel(timelineTasks, timelineConfig);
-  }, [timelineTasks, timelineConfig]);
+    return buildTimelineModel(timelineTasks, timelineConfig, new Date(selectedDate), viewMode);
+  }, [timelineTasks, timelineConfig, selectedDate, viewMode]);
   
   // 更新当前时间
   useEffect(() => {
@@ -263,6 +288,47 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     
     return () => clearInterval(timer);
   }, []);
+  
+  // 日期导航函数
+  const handlePrevDay = async () => {
+    const prevDate = new Date(selectedDate);
+    prevDate.setDate(prevDate.getDate() - 1);
+    const newDate = prevDate.toISOString().split('T')[0];
+    setSelectedDate(newDate);
+    await loadTodayData(newDate);
+  };
+  
+  const handleNextDay = async () => {
+    const nextDate = new Date(selectedDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const newDate = nextDate.toISOString().split('T')[0];
+    setSelectedDate(newDate);
+    await loadTodayData(newDate);
+  };
+  
+  // 周导航函数
+  const handlePrevWeek = async () => {
+    const prevWeek = new Date(selectedDate);
+    prevWeek.setDate(prevWeek.getDate() - 7);
+    const newDate = prevWeek.toISOString().split('T')[0];
+    setSelectedDate(newDate);
+    await loadTodayData(newDate);
+  };
+  
+  const handleNextWeek = async () => {
+    const nextWeek = new Date(selectedDate);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const newDate = nextWeek.toISOString().split('T')[0];
+    setSelectedDate(newDate);
+    await loadTodayData(newDate);
+  };
+  
+  // 跳转到今天
+  const handleToday = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    setSelectedDate(today);
+    await loadTodayData(today);
+  };
   
 
   const lastDragRectRef = useRef<DOMRect | null>(null);
@@ -403,6 +469,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         const rect = timelineContentRef.current.getBoundingClientRect();
         const timelineHeight = rect.height;
         const mouseY = mousePositionRef.current.y - rect.top;
+        const mouseX = mousePositionRef.current.x - rect.left;
         
         // 计算位置百分比
         let positionPercent = (mouseY / timelineHeight) * 100;
@@ -432,6 +499,33 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         
         // 创建时间戳
         const date = new Date();
+        
+        // 如果是周视图，计算鼠标所在的日期
+        if (viewMode === 'week' && isWeekTimeline(timelineModel)) {
+          // 计算周视图中每列的宽度
+          const weekContent = timelineContentRef.current.querySelector('.timeline-week-content');
+          const columnsContainer = weekContent?.querySelector('.timeline-week-columns');
+          const timeScale = weekContent?.querySelector('.timeline-week-time-scale');
+          
+          if (columnsContainer && timeScale) {
+            const columnsRect = columnsContainer.getBoundingClientRect();
+            const timeScaleRect = timeScale.getBoundingClientRect();
+            const columnsWidth = columnsRect.width;
+            const columnWidth = columnsWidth / 7;
+            
+            // 计算鼠标所在的列索引
+            const columnIndex = Math.min(Math.floor((mouseX - timeScaleRect.width) / columnWidth), 6);
+            
+            // 计算对应的日期
+            const targetDate = new Date(timelineModel.weekStart);
+            targetDate.setDate(targetDate.getDate() + columnIndex);
+            date.setFullYear(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+          }
+        } else {
+          // 日视图，使用当前选择的日期
+          date.setFullYear(parseInt(selectedDate.split('-')[0]), parseInt(selectedDate.split('-')[1]) - 1, parseInt(selectedDate.split('-')[2]));
+        }
+        
         date.setHours(hour, minute, 0, 0);
         
         // 更新ref值
@@ -549,9 +643,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         
         // 实现将任务添加到时间线的逻辑
         // 1. 准备任务数据
-        const scheduledStart = `${yyyymmdd}T${timeStr}`;
+        const scheduledDate = dragIndicatorTimeStampRef.current.toISOString().split('T')[0];
+        const scheduledStart = `${scheduledDate}T${timeStr}`;
         const estimatedEnd = calculateEstimatedEnd(scheduledStart, draggedTask.estimate_min);
-        const scheduleDueDate = draggedTask.due_date || yyyymmdd;
+        const scheduleDueDate = draggedTask.due_date || scheduledDate;
         
         // 2. 检查时间段是否被占用（基于任务时长的精确检查）
         let hasConflict = false;
@@ -755,10 +850,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const isLoading = usePlanningStore(state => state.isLoading);
   const error = usePlanningStore(state => state.error);
   
-  // Load today's data when component mounts
+  // Load today's data when component mounts or selectedDate changes
   useEffect(() => {
     if (hasVault) {
-      loadTodayData(yyyymmdd);
+      loadTodayData(selectedDate);
     }
     
     // Update current time every minute for the display
@@ -769,7 +864,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     return () => {
       clearInterval(timeDisplayTimer);
     };
-  }, [hasVault, yyyymmdd]);
+  }, [hasVault, selectedDate]);
   
   // 新建任务模态框处理
   const handleOpenCreateModal = () => {
@@ -784,7 +879,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     console.log('Task created successfully');
     setIsCreateModalOpen(false);
     // Reload today's data to include the new task
-    loadTodayData(yyyymmdd);
+    loadTodayData(selectedDate);
   };
   
   // 任务状态菜单处理
@@ -1094,7 +1189,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       
       // Close editor and refresh data
       handleCloseScheduleEditor();
-      loadTodayData(yyyymmdd);
+      loadTodayData(selectedDate);
     } catch (error) {
       console.error('更新任务排程失败:', error);
       setScheduleEditorError(`更新任务排程失败: ${(error as Error).message}`);
@@ -1513,10 +1608,80 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 新建任务
               </button>
             </div>
+
+            {/* Filter Panel */}
+            {filterPanelOpen && (
+              <div className="dashboard-filter-panel-overlay" onClick={() => setFilterPanelOpen(false)}>
+                <div className="dashboard-filter-panel" onClick={(e) => e.stopPropagation()}>
+                  <div className="dashboard-filter-panel-header">
+                    <h3>筛选</h3>
+                    <button className="dashboard-filter-panel-close" onClick={() => setFilterPanelOpen(false)}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="dashboard-filter-panel-content">
+                    <div className="dashboard-filter-section">
+                      <span className="dashboard-filter-label">标签:</span>
+                      <div className="dashboard-filter-tags">
+                        {getAllUniqueTags().map(tag => (
+                          <button 
+                            key={tag}
+                            className={`dashboard-filter-tag ${uiState.filters.tags.includes(tag) ? 'active' : ''}`}
+                            onClick={() => handleToggleTagFilter(tag)}
+                          >
+                            {tag}
+                            {uiState.filters.tags.includes(tag) && (
+                              <span className="dashboard-filter-tag-remove">&times;</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="dashboard-filter-section">
+                      <span className="dashboard-filter-label">优先级:</span>
+                      <div className="dashboard-filter-priorities">
+                        <button 
+                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p0' ? 'active' : ''}`}
+                          onClick={() => handleSetPriorityFilter('p0')}
+                        >
+                          P0
+                        </button>
+                        <button 
+                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p1' ? 'active' : ''}`}
+                          onClick={() => handleSetPriorityFilter('p1')}
+                        >
+                          P1
+                        </button>
+                        <button 
+                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p2' ? 'active' : ''}`}
+                          onClick={() => handleSetPriorityFilter('p2')}
+                        >
+                          P2
+                        </button>
+                        <button 
+                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p3' ? 'active' : ''}`}
+                          onClick={() => handleSetPriorityFilter('p3')}
+                        >
+                          P3
+                        </button>
+                      </div>
+                    </div>
+                    {(uiState.filters.tags.length > 0 || uiState.filters.priority) && (
+                      <button className="dashboard-filter-clear" onClick={handleClearFilters}>
+                        清除筛选
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </header>
           
           {/* Main Content */}
-          <main className="dashboard-main">
+          <main className={`dashboard-main view-mode-${viewMode}`}>
             <DndContext
               sensors={sensors}
               collisionDetection={(args) => {
@@ -1541,18 +1706,33 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   </span>
                 </div>
                 <div className="timeline-date-nav">
-                  <button className="timeline-nav-btn">
+                  <button className="timeline-nav-btn" onClick={viewMode === 'day' ? handlePrevDay : handlePrevWeek}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="15 18 9 12 15 6"></polyline>
                     </svg>
                   </button>
-                  <button className="timeline-nav-btn">
+                  <button className="timeline-nav-btn" onClick={viewMode === 'day' ? handleNextDay : handleNextWeek}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="9 18 15 12 9 6"></polyline>
                     </svg>
                   </button>
-                  <span className="timeline-today-badge">今日</span>
+                  <button className="timeline-today-badge" onClick={handleToday}>
+                    {selectedDate === new Date().toISOString().split('T')[0] ? '今日' : '回到今天'}
+                  </button>
                 </div>
+                {/* Week View Toggle */}
+                <button 
+                  className={`timeline-view-toggle ${viewMode === 'week' ? 'active' : ''}`}
+                  onClick={() => setViewMode(viewMode === 'day' ? 'week' : 'day')}
+                  title={viewMode === 'day' ? '切换到周视图' : '切换到日视图'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                </button>
                 {/* Timeline Collapse Toggle */}
                 <button 
                   className={`timeline-collapse-btn ${uiState.layout.timelineCollapsed ? 'collapsed' : ''}`}
@@ -1587,20 +1767,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               
               <div className="timeline-content" ref={timelineContentRef}>
                 <div className="timeline-container" id="timeline:main" ref={timelineDroppable.setNodeRef}>
-
-                  
-                  {/* Now Indicator */}
-                  <div 
-                    className="timeline-now-indicator"
-                    style={{ top: `${timelineModel.nowLine.position}%` }}
-                  >
-                    <div className="timeline-now-time">{currentTime}</div>
-                    <div className="timeline-now-line">
-                      <div className="timeline-now-dot"></div>
-                    </div>
-                  </div>
-                  
-                  {/* Drag Indicator */}
+                  {isDayTimeline(timelineModel) ? (
+                    <>
+                      {/* Drag Indicator */}
                   {showDragIndicator && (
                     <div 
                       className="timeline-drag-indicator"
@@ -1630,13 +1799,23 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   {/* Blocks Layer - 时间块 */}
                   <div className="timeline-blocks-layer">
                     {/* 渲染已排期块 */}
-                    {timelineModel.busyBlocks.map(block => (
+                    {timelineModel.busyBlocks.map(block => {
+                      // 计算基础高度百分比
+                      const baseHeightPercent = (block.durationMinutes / (12 * 60)) * 100;
+                      // 设置最大高度限制，确保任务块不会过大
+                      const heightPercent = Math.min(baseHeightPercent, 12);
+                      // 计算顶部位置，添加0.5%的上边距
+                      const topPercent = ((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100 + 0.5;
+                       
+                      return (
                       <div 
                         key={block.id}
                         className="timeline-block timeline-event busy"
                         style={{
-                          top: `${((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100}%`,
-                          height: `${(block.durationMinutes / (12 * 60)) * 100}%`,
+                          top: `${topPercent}%`,
+                          height: `${heightPercent - 1}%`, // 减去1%的下边距
+                          // 添加最小高度，确保小任务也能清晰显示
+                          minHeight: '35px',
                         }}
                       >
                         <div className="timeline-block-time">
@@ -1652,38 +1831,157 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     
                     {/* 渲染空闲块 */}
-                    {timelineModel.freeBlocks.map(block => (
-                      <div 
-                        key={block.id}
-                        className="timeline-block timeline-free-block"
-                        style={{
-                          top: `${((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100}%`,
-                          height: `${(block.durationMinutes / (12 * 60)) * 100}%`,
-                        }}
-                        onClick={() => {
-                          setQuickScheduleStartTime(block.start.toISOString());
-                          setIsQuickScheduleOpen(true);
-                        }}
-                      >
-                        <div className="timeline-free-block-content">
-                          <div className="timeline-free-block-cta">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <line x1="12" y1="5" x2="12" y2="19"></line>
-                              <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                            可安排
-                          </div>
-                          <div className="timeline-free-block-time">
-                            {block.start.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - 
-                            {block.end.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    {timelineModel.freeBlocks.map(block => {
+                      // 计算高度百分比，完全填充可用时间
+                      const heightPercent = (block.durationMinutes / (12 * 60)) * 100;
+                      // 计算顶部位置，添加0.5%的上边距
+                      const topPercent = ((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100 + 0.5;
+                        
+                      return (
+                        <div 
+                          key={block.id}
+                          className="timeline-block timeline-free-block"
+                          style={{
+                            top: `${topPercent}%`,
+                            height: `${heightPercent - 1}%`, // 减去1%的下边距
+                            // 添加最小高度，确保每个空闲块都能清晰显示
+                            minHeight: '35px',
+                          }}
+                        >
+                          <div className="timeline-free-block-content">
+                            <div className="timeline-free-block-cta">
+                              空闲时间
+                            </div>
+                            <div className="timeline-free-block-time">
+                              {block.start.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} -
+                              {block.end.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                    </>
+                  ) : isWeekTimeline(timelineModel) ? (
+                    <div className="timeline-week-view">
+                      {/* 周视图头部 - 显示星期和日期 */}
+                      <div className="timeline-week-header">
+                        {timelineModel.days.map((dayModel, index) => {
+                          const date = dayModel.busyBlocks.length > 0 ? 
+                            new Date(dayModel.busyBlocks[0].start) : 
+                            new Date(timelineModel.weekStart.getTime() + index * 24 * 60 * 60 * 1000);
+                          
+                          const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+                          const isToday = date.toDateString() === new Date().toDateString();
+                          
+                          return (
+                            <div key={index} className={`timeline-week-day-header ${isToday ? 'today' : ''}`}>
+                              <div className="timeline-week-day-name">{weekdays[date.getDay() === 0 ? 6 : date.getDay() - 1]}</div>
+                              <div className="timeline-week-day-date">{date.getMonth() + 1}/{date.getDate()}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* 周视图内容 - 7天的时间轴 */}
+                      <div className="timeline-week-content">
+                        {/* 左侧时间刻度 */}
+                        <div className="timeline-week-time-scale">
+                          {Array.from({ length: 13 }, (_, i) => {
+                            const hour = 8 + i;
+                            const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+                            return (
+                              <div key={timeStr} className="timeline-week-time-item">
+                                {timeStr}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        
+                        {/* 7天的时间轴列 */}
+                        <div className="timeline-week-columns">
+                          {timelineModel.days.map((dayModel, dayIndex) => {
+                            return (
+                              <div key={dayIndex} className="timeline-week-column">
+                                {/* 日期分隔线 */}
+                                <div className="timeline-week-column-divider"></div>
+                                
+                                {/* 时间线内容 */}
+                                <div className="timeline-week-column-content">
+                                  {/* 已排期块 */}
+                                  {dayModel.busyBlocks.map(block => {
+                                    // 计算基础高度百分比
+                                    const baseHeightPercent = (block.durationMinutes / (12 * 60)) * 100;
+                                    // 设置最大高度限制，确保任务块不会过大
+                                    const heightPercent = Math.min(baseHeightPercent, 12);
+                                    // 计算顶部位置，添加0.5%的上边距
+                                    const topPercent = ((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100 + 0.5;
+                                      
+                                    return (
+                                      <div 
+                                        key={block.id}
+                                        className="timeline-block timeline-event busy"
+                                        style={{
+                                          top: `${topPercent}%`,
+                                          height: `${heightPercent - 1}%`, // 减去1%的下边距
+                                          // 添加最小高度，确保小任务也能清晰显示
+                                          minHeight: '35px',
+                                        }}
+                                      >
+                                        <div className="timeline-block-time">
+                                          {block.start.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                        <div className="timeline-block-content">
+                                          <div className="timeline-event-title">{block.task.title}</div>
+                                          {block.task.estimate_min && (
+                                            <div className="timeline-event-desc">预计 {block.task.estimate_min} 分钟</div>
+                                          )}
+                                          {block.task.status && (
+                                            <div className="timeline-event-tag">{block.task.status.toUpperCase()}</div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  
+                                  {/* 空闲时间块 */}
+                                  {dayModel.freeBlocks.map(block => {
+                                    // 计算高度百分比，完全填充可用时间
+                                    const heightPercent = (block.durationMinutes / (12 * 60)) * 100;
+                                    // 计算顶部位置，添加0.5%的上边距
+                                    const topPercent = ((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100 + 0.5;
+                                        
+                                    return (
+                                      <div 
+                                        key={block.id}
+                                        className="timeline-block timeline-free-block"
+                                        style={{
+                                          top: `${topPercent}%`,
+                                          height: `${heightPercent - 1}%`, // 减去1%的下边距
+                                          // 添加最小高度，确保每个空闲块都能清晰显示
+                                          minHeight: '35px',
+                                        }}
+                                      >
+                                        <div className="timeline-free-block-content">
+                                          <div className="timeline-free-block-cta">
+                                            空闲时间
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </aside>
@@ -1720,7 +2018,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       </svg>
                     </button>
                   </div>
-                  <button className="kanban-filter-btn">
+                  <button className="kanban-filter-btn" onClick={() => setFilterPanelOpen(!filterPanelOpen)}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                     </svg>
@@ -1728,60 +2026,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 </div>
               </div>
               
-              {/* Filter Bar */}
-              <div className="kanban-filter-bar">
-                <div className="kanban-filter-section">
-                  <span className="kanban-filter-label">标签:</span>
-                  <div className="kanban-filter-tags">
-                    {getAllUniqueTags().map(tag => (
-                      <button 
-                        key={tag}
-                        className={`kanban-filter-tag ${uiState.filters.tags.includes(tag) ? 'active' : ''}`}
-                        onClick={() => handleToggleTagFilter(tag)}
-                      >
-                        {tag}
-                        {uiState.filters.tags.includes(tag) && (
-                          <span className="kanban-filter-tag-remove">&times;</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="kanban-filter-section">
-                  <span className="kanban-filter-label">优先级:</span>
-                  <div className="kanban-filter-priorities">
-                    <button 
-                      className={`kanban-filter-priority ${uiState.filters.priority === 'p0' ? 'active' : ''}`}
-                      onClick={() => handleSetPriorityFilter('p0')}
-                    >
-                      P0
-                    </button>
-                    <button 
-                      className={`kanban-filter-priority ${uiState.filters.priority === 'p1' ? 'active' : ''}`}
-                      onClick={() => handleSetPriorityFilter('p1')}
-                    >
-                      P1
-                    </button>
-                    <button 
-                      className={`kanban-filter-priority ${uiState.filters.priority === 'p2' ? 'active' : ''}`}
-                      onClick={() => handleSetPriorityFilter('p2')}
-                    >
-                      P2
-                    </button>
-                    <button 
-                      className={`kanban-filter-priority ${uiState.filters.priority === 'p3' ? 'active' : ''}`}
-                      onClick={() => handleSetPriorityFilter('p3')}
-                    >
-                      P3
-                    </button>
-                  </div>
-                </div>
-                {(uiState.filters.tags.length > 0 || uiState.filters.priority) && (
-                  <button className="kanban-filter-clear" onClick={handleClearFilters}>
-                    清除筛选
-                  </button>
-                )}
-              </div>
+
               
 
                 <SortableContext 
