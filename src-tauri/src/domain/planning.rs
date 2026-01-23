@@ -1,6 +1,25 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
+// Subtask model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subtask {
+    pub id: String,
+    pub title: String,
+    pub completed: bool,
+}
+
+// Task periodicity model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskPeriodicity {
+    pub strategy: String, // "day", "week", "month", "year"
+    pub interval: i32,
+    pub start_date: String,
+    pub end_rule: String, // "never", "date", "count"
+    pub end_date: Option<String>,
+    pub end_count: Option<i32>,
+}
+
 // Task priority enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -8,11 +27,11 @@ pub enum TaskPriority {
     #[serde(alias = "p0")]
     Urgent, // P0
     #[serde(alias = "p1")]
-    High,   // P1
+    High, // P1
     #[serde(alias = "p2")]
     Medium, // P2
     #[serde(alias = "p3")]
-    Low,    // P3
+    Low, // P3
 }
 
 impl From<&str> for TaskPriority {
@@ -41,17 +60,18 @@ impl Display for TaskPriority {
 // Task status enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
-    #[serde(alias = "Backlog")]
-    #[serde(rename = "backlog")]
-    Backlog,
-
     #[serde(alias = "Todo")]
+    #[serde(alias = "backlog")] // Support legacy backlog for incoming requests
     #[serde(rename = "todo")]
     Todo,
 
     #[serde(alias = "Doing")]
     #[serde(rename = "doing")]
     Doing,
+
+    #[serde(alias = "Verify")]
+    #[serde(rename = "verify")]
+    Verify,
 
     #[serde(alias = "Done")]
     #[serde(rename = "done")]
@@ -61,11 +81,12 @@ pub enum TaskStatus {
 impl From<&str> for TaskStatus {
     fn from(s: &str) -> Self {
         match s {
-            "backlog" => TaskStatus::Backlog,
+            "backlog" => TaskStatus::Todo, // Map legacy backlog to todo
             "todo" => TaskStatus::Todo,
             "doing" => TaskStatus::Doing,
+            "verify" => TaskStatus::Verify,
             "done" => TaskStatus::Done,
-            _ => TaskStatus::Backlog,
+            _ => TaskStatus::Todo,
         }
     }
 }
@@ -73,9 +94,9 @@ impl From<&str> for TaskStatus {
 impl Display for TaskStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskStatus::Backlog => write!(f, "backlog"),
             TaskStatus::Todo => write!(f, "todo"),
             TaskStatus::Doing => write!(f, "doing"),
+            TaskStatus::Verify => write!(f, "verify"),
             TaskStatus::Done => write!(f, "done"),
         }
     }
@@ -91,6 +112,8 @@ pub struct Task {
     pub priority: Option<TaskPriority>,
     pub tags: Option<Vec<String>>,
     pub labels: Option<Vec<String>>,
+    pub subtasks: Option<Vec<Subtask>>,
+    pub periodicity: Option<TaskPeriodicity>,
     pub order_index: i64,
     pub estimate_min: Option<i64>,
     pub scheduled_start: Option<String>,
@@ -98,6 +121,8 @@ pub struct Task {
     pub due_date: Option<String>,
     pub board_id: Option<String>,
     pub note_path: Option<String>,
+    pub task_dir_slug: Option<String>, // Directory slug for task folder
+    pub md_rel_path: Option<String>,   // Relative path to markdown file
     pub created_at: String,
     pub updated_at: String,
     pub completed_at: Option<String>,
@@ -127,9 +152,9 @@ pub struct DayLog {
 // Kanban tasks grouped by status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KanbanTasks {
-    pub backlog: Vec<Task>,
     pub todo: Vec<Task>,
     pub doing: Vec<Task>,
+    pub verify: Vec<Task>,
     pub done: Vec<Task>,
 }
 
@@ -156,6 +181,8 @@ pub struct CreateTaskInput {
     pub estimate_min: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub labels: Option<Vec<String>>,
+    pub subtasks: Option<Vec<Subtask>>,
+    pub periodicity: Option<TaskPeriodicity>,
     pub scheduled_start: Option<String>,
     pub scheduled_end: Option<String>,
     pub note_path: Option<String>,
@@ -171,6 +198,8 @@ pub struct UpdateTaskInput {
     pub priority: Option<TaskPriority>,
     pub tags: Option<Vec<String>>,
     pub labels: Option<Vec<String>>,
+    pub subtasks: Option<Vec<Subtask>>,
+    pub periodicity: Option<TaskPeriodicity>,
     pub due_date: Option<Option<String>>,
     pub board_id: Option<String>,
     pub order_index: Option<i64>,

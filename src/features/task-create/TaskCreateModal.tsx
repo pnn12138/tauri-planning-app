@@ -1,458 +1,459 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { createTask } from '../planning/planning.store';
 import { normalizeError, NormalizedApiError, planningOpenTaskNote } from '../planning/planning.api';
-import { TaskCreateModalProps, TaskCreateDraftStep1, toCreateTaskInputStep1, CreateTaskInput } from './taskCreateModal.types';
+import { CreateTaskInput, Subtask, TaskPeriodicity, TaskPriority, TaskStatus } from '../../shared/types/planning';
 import './taskCreateModal.css';
+
+interface TaskCreateModalProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}
 
 const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
   open,
-  defaultStatus = 'backlog',
   onClose,
   onCreated,
 }) => {
-  // 确保默认状态不是 doing
-  const safeDefaultStatus = defaultStatus === 'doing' ? 'todo' : defaultStatus;
-  
-  // Initial draft state (仅包含Step1字段)
-  const initialDraft: TaskCreateDraftStep1 = {
-    title: '',
-    description: '',
-    status: safeDefaultStatus as 'backlog' | 'todo' | 'done',
-    priority: 'p3',
-    tags: [],
-    dueDateTime: undefined,
-    estimateMin: undefined,
-    autoCreateNote: true, // 默认自动创建task note
-    newTagInput: '',
+  // State
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  // Defaults: Status = 'todo', Date = Today
+  const [status, setStatus] = useState<TaskStatus>('todo');
+  const [priority, setPriority] = useState<TaskPriority>('p3');
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState('');
+
+  // Schedule defaults to Today
+  const [scheduledDate, setScheduledDate] = useState<string>(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD
+  const [scheduledTimeStart, setScheduledTimeStart] = useState<string>(''); // HH:mm
+  const [scheduledTimeEnd, setScheduledTimeEnd] = useState<string>(''); // HH:mm
+
+  // Subtasks
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+
+  // Periodicity
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [periodicity, setPeriodicity] = useState<TaskPeriodicity>({
+    strategy: 'week',
+    interval: 1,
+    start_date: new Date().toLocaleDateString('en-CA'),
+    end_rule: 'never',
+  });
+  const [periodicityTime, setPeriodicityTime] = useState<string>('09:00');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Reset form when opening
+  useEffect(() => {
+    if (open) {
+      setTitle('');
+      setDescription('');
+      setStatus('todo'); // Always reset to todo
+      setPriority('p3');
+      setTags([]);
+      setSubtasks([]);
+      setIsRecurring(false);
+      setScheduledDate(new Date().toLocaleDateString('en-CA')); // Reset to Today
+      setScheduledTimeStart('');
+      setScheduledTimeEnd('');
+      setPeriodicityTime('09:00');
+      setError('');
+    }
+  }, [open]);
+
+  // Handlers
+  const handleAddSubtask = () => {
+    const newSubtask: Subtask = {
+      id: uuidv4(),
+      title: '',
+      completed: false,
+    };
+    setSubtasks([...subtasks, newSubtask]);
   };
 
-  // State management
-  const [draft, setDraft] = useState<TaskCreateDraftStep1>(initialDraft);
-  const [error, setError] = useState<string>('');
-  const [dueDateError, setDueDateError] = useState<string>('');
-  const [apiError, setApiError] = useState<NormalizedApiError | null>(null);
-  const [lastSubmitInput, setLastSubmitInput] = useState<CreateTaskInput | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const handleUpdateSubtask = (id: string, updates: Partial<Subtask>) => {
+    setSubtasks(subtasks.map(t => t.id === id ? { ...t, ...updates } : t));
+  };
 
-  // Update draft helper with real-time validation
-  const updateDraft = (patch: Partial<TaskCreateDraftStep1>) => {
-    const newDraft = { ...draft, ...patch };
-    setDraft(newDraft);
-    
-    // Real-time validation for title
-    if (patch.title !== undefined) {
-      if (!newDraft.title.trim()) {
-        setError('任务标题不能为空');
-      } else {
-        setError('');
-      }
-    }
-    
-    // Clear API error when user edits the form
-    setApiError(null);
+  const handleRemoveSubtask = (id: string) => {
+    setSubtasks(subtasks.filter(t => t.id !== id));
+  };
 
-    if (patch.dueDateTime !== undefined || patch.status !== undefined) {
-      setDueDateError('');
+  const handleAddTag = () => {
+    const tag = newTagInput.trim();
+    if (tag && !tags.includes(tag)) {
+      setTags([...tags, tag]);
+      setNewTagInput('');
     }
   };
 
-  // Handle form submission
-  const handleSubmit = async (e?: React.FormEvent, input?: CreateTaskInput) => {
-    if (e) {
-      e.preventDefault();
-    }
-    
-    // Use provided input or convert from draft
-    const submitInput = input || toCreateTaskInputStep1(draft);
-    
-    // Validation
-    if (!submitInput.title.trim()) {
-      setError('任务标题不能为空');
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter(tag => tag !== tagToRemove));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setError('请输入任务标题');
       return;
     }
 
-    if (submitInput.status === 'todo' && !submitInput.due_date) {
-      setDueDateError('待办任务需要设置截止日期');
-      return;
-    }
-
-    setError('');
-    setDueDateError('');
-    setApiError(null);
     setIsSubmitting(true);
-    
-    // Save last submitted input for retry
-    setLastSubmitInput(submitInput);
+    setError('');
 
     try {
-      // Create task and get the new task object
-      const newTask = await createTask(submitInput);
-      
-      // If autoCreateNote is true, open the task note
-      if (draft.autoCreateNote) {
-        await planningOpenTaskNote(newTask.id);
+      // Construct payload
+      const filteredSubtasks = subtasks.filter(s => s.title.trim() !== '');
+
+      const payload: CreateTaskInput = {
+        title,
+        description: description || undefined,
+        status: status,
+        priority,
+        tags: tags.length > 0 ? tags : undefined,
+        subtasks: filteredSubtasks.length > 0 ? filteredSubtasks : undefined,
+        periodicity: isRecurring ? {
+          ...periodicity,
+          start_date: periodicityTime ? `${periodicity.start_date}T${periodicityTime}:00` : `${periodicity.start_date}T00:00:00`
+        } : undefined,
+      };
+
+      // Handle Schedule - defaults to Today or user selected
+      // If Recurring, priority goes to Periodicity Start Date/Time
+      if (isRecurring && payload.periodicity) {
+        payload.scheduled_start = payload.periodicity.start_date;
+        payload.due_date = payload.scheduled_start;
+        // We ignore scheduledTimeEnd for now as periodicity doesn't cover duration yet explicitly in this UI part
+      } else if (scheduledDate) {
+        if (scheduledTimeStart) {
+          payload.scheduled_start = `${scheduledDate}T${scheduledTimeStart}:00`;
+        } else {
+          // If no time specific, maybe don't set T00:00:00 if we want it to be "all day" implicitly? 
+          // But backend expects ISO string. Let's keep T00:00:00 for now or handled by backend.
+          // requirement says "joined schedule defaults to creation time", but actually user wants "Today".
+          payload.scheduled_start = `${scheduledDate}T00:00:00`;
+        }
+
+        if (scheduledTimeEnd) {
+          payload.scheduled_end = `${scheduledDate}T${scheduledTimeEnd}:00`;
+        }
+        // Also set due_date as scheduled_start for compatibility with Kanban due dates
+        payload.due_date = payload.scheduled_start;
       }
-      
-      onCreated();
+
+      await createTask(payload);
+      if (onCreated) onCreated();
       onClose();
-      // Reset form for next use
-      setDraft(initialDraft);
-      setLastSubmitInput(null);
     } catch (err) {
-      const normalizedError = normalizeError(err);
-      setApiError(normalizedError);
+      console.error(err);
+      setError('创建任务失败，请重试');
     } finally {
       setIsSubmitting(false);
     }
   };
-  
-  // Handle retry for DbBusy error
-  const handleRetry = () => {
-    if (lastSubmitInput && !isSubmitting) {
-      handleSubmit(undefined, lastSubmitInput);
-    }
-  };
-  
-  // Handle go to select vault
-  const handleGoToSelectVault = () => {
-    onClose();
-    // TODO: Implement vault selection trigger
-    // This would typically call a global function or dispatch an event to open vault selection
-    alert('请在设置中选择Vault');
-  };
-  
-  // Render error based on error type
-  const renderError = () => {
-    if (!apiError) return null;
-    
-    // Common error banner styles
-    const errorBannerClass = 'task-create-error-banner';
-    const errorButtonClass = 'task-create-error-button';
-    
-    switch (apiError.code) {
-      case 'VaultNotSelected':
-        return (
-          <div className={`${errorBannerClass} vault-not-selected`}>
-            <div className="error-message">{apiError.message}</div>
-            <button 
-              className={errorButtonClass}
-              onClick={handleGoToSelectVault}
-              disabled={isSubmitting}
-            >
-              去选择Vault
-            </button>
-          </div>
-        );
-        
-      case 'DbBusy':
-        return (
-          <div className={`${errorBannerClass} db-busy`}>
-            <div className="error-message">{apiError.message || '数据库繁忙，请稍后重试'}</div>
-            <button 
-              className={errorButtonClass}
-              onClick={handleRetry}
-              disabled={isSubmitting}
-            >
-              重试
-            </button>
-          </div>
-        );
-        
-      case 'InvalidParameter':
-        // If field errors exist, they will be rendered next to the fields
-        // This banner is for global error message
-        if (!apiError.fieldErrors || Object.keys(apiError.fieldErrors).length === 0) {
-          return (
-            <div className={`${errorBannerClass} invalid-parameter`}>
-              <div className="error-message">{apiError.message}</div>
-            </div>
-          );
-        }
-        return null;
-        
-      default:
-        return (
-          <div className={`${errorBannerClass} unknown-error`}>
-            <div className="error-message">{apiError.message}</div>
-            <button 
-              className={errorButtonClass}
-              onClick={handleRetry}
-              disabled={isSubmitting}
-            >
-              重试
-            </button>
-          </div>
-        );
-    }
-  };
-  
-  // Get field error for a specific field
-  const getFieldError = (fieldName: string): string | undefined => {
-    return apiError?.fieldErrors?.[fieldName];
-  };
 
-  // Handle Enter key press to submit form
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && draft.title.trim() && !isSubmitting) {
-      handleSubmit(e as unknown as React.FormEvent);
-    }
-  };
-
-  // Close modal and reset form
-  const handleClose = () => {
-    onClose();
-    setDraft(initialDraft);
-    setError('');
-  };
-
-  // 处理键盘事件
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [open]);
-
-  // 如果modal未打开，不渲染
   if (!open) return null;
 
   return (
-    <div className="task-create-modal-overlay" onClick={handleClose}>
-      <div className="task-create-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="task-create-modal-overlay" onClick={onClose}>
+      <div className="task-create-modal" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="task-create-modal-header">
-          <div className="task-create-modal-header-left">
-            <div className="task-create-modal-icon">
-              <span className="material-symbols-outlined">add_task</span>
+        <div className="task-modal-header">
+          <div className="task-modal-header-left">
+            <div className="task-modal-icon-box">
+              <span className="material-symbols-outlined">edit_note</span>
             </div>
-            <h3 className="task-create-modal-title">新建任务</h3>
+            <h3 className="task-modal-title">创建任务</h3>
           </div>
-          <button 
-            className="task-create-modal-close"
-            onClick={handleClose}
-            disabled={isSubmitting}
-          >
+          <button className="task-modal-close-btn" onClick={onClose}>
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
 
-        {/* Form */}
-        <form id="task-create-form" onSubmit={handleSubmit} className="task-create-modal-form">
-          {/* API Error Banner */}
-          {renderError()}
-          
-          {/* Title Input */}
-          <div className="task-create-form-group">
-            <label className="task-create-form-label">任务标题</label>
+        {/* Body */}
+        <div className="task-modal-body custom-scrollbar">
+          {/* Title */}
+          <div className="task-field-group">
+            <label className="task-label">任务标题</label>
             <input
               type="text"
-              className={`task-create-form-input task-create-form-title ${error || getFieldError('title') ? 'error' : ''}`}
+              className="task-input-title"
               placeholder="准备做什么？"
-              value={draft.title}
-              onChange={(e) => updateDraft({ title: e.target.value })}
-              onKeyPress={handleKeyPress}
-              disabled={isSubmitting}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
               autoFocus
             />
-            {error && <div className="task-create-form-error">{error}</div>}
-            {getFieldError('title') && <div className="task-create-form-error">{getFieldError('title')}</div>}
           </div>
 
-          {/* Description Input */}
-          <div className="task-create-form-group">
-            <label className="task-create-form-label">任务描述</label>
+          {/* Description */}
+          <div className="task-field-group">
+            <label className="task-label">任务描述</label>
             <textarea
-              className="task-create-form-input task-create-form-description"
+              className="task-input-desc custom-scrollbar"
               placeholder="添加详细描述..."
-              value={draft.description || ''}
-              onChange={(e) => updateDraft({ description: e.target.value })}
-              disabled={isSubmitting}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
             />
           </div>
 
-          {/* Metadata Grid */}
-          <div className="task-create-metadata-grid">
-            {/* Estimate Time */}
-            <div className="task-create-form-group">
-              <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">timer</span>
-                预估耗时
+          {/* Subtasks */}
+          <div className="task-field-group">
+            <div className="subtask-header">
+              <label className="subtask-header-label">
+                <span className="material-symbols-outlined text-[18px]">checklist</span>
+                子任务 ({subtasks.filter(s => s.completed).length}/{subtasks.length})
               </label>
-              <div className="task-create-time-input-container">
-                <input
-                  type="number"
-                  className="task-create-form-input task-create-time-input"
-                  placeholder="输入预计时间"
-                  value={draft.estimateMin || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    updateDraft({ estimateMin: value ? parseInt(value, 10) : undefined });
-                  }}
-                  disabled={isSubmitting}
-                  min="1"
-                  step="5"
-                />
-                <span className="task-create-time-unit">分钟</span>
-              </div>
+              {subtasks.length > 0 && (
+                <div className="subtask-progress">
+                  <div
+                    className="subtask-progress-bar"
+                    style={{ width: `${(subtasks.filter(s => s.completed).length / subtasks.length) * 100}%` }}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Due Date */}
-            <div className="task-create-form-group">
-              <label className="task-create-form-label">
-                <span className="material-symbols-outlined task-create-label-icon">event_busy</span>
-                截止日期
-              </label>
-              <div className="task-create-datetime-input-container">
-                <input
-                  type="datetime-local"
-                  className={`task-create-form-input ${dueDateError ? 'error' : ''}`}
-                  value={draft.dueDateTime || ''}
-                  onChange={(e) => updateDraft({ dueDateTime: e.target.value || undefined })}
-                  disabled={isSubmitting}
-                  placeholder="选择截止时间"
-                />
-              </div>
-              {dueDateError && <div className="task-create-form-error">{dueDateError}</div>}
-              {getFieldError('due_date') && <div className="task-create-form-error">{getFieldError('due_date')}</div>}
+            <div className="subtask-list">
+              {subtasks.map((subtask) => (
+                <div key={subtask.id} className="subtask-item group">
+                  <input
+                    type="checkbox"
+                    className="subtask-checkbox"
+                    checked={subtask.completed}
+                    onChange={e => handleUpdateSubtask(subtask.id, { completed: e.target.checked })}
+                  />
+                  <input
+                    type="text"
+                    className={`subtask-text ${subtask.completed ? 'completed' : ''}`}
+                    value={subtask.title}
+                    onChange={e => handleUpdateSubtask(subtask.id, { title: e.target.value })}
+                    placeholder="子任务名称"
+                  />
+                  <button
+                    className="subtask-delete-btn"
+                    onClick={() => handleRemoveSubtask(subtask.id)}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                  </button>
+                </div>
+              ))}
+              <button className="btn-add-subtask" onClick={handleAddSubtask}>
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                添加子任务
+              </button>
             </div>
           </div>
 
-          {/* Priority */}
-          <div className="task-create-form-group">
-            <label className="task-create-form-label">
-              <span className="material-symbols-outlined task-create-label-icon">flag</span>
-              优先级
-            </label>
-            <div className="task-create-priority-options">
-              {
-                [
-                  { value: 'p0', label: 'P0', color: 'priority-urgent' },
-                  { value: 'p1', label: 'P1', color: 'priority-high' },
-                  { value: 'p2', label: 'P2', color: 'priority-med' },
-                  { value: 'p3', label: 'P3', color: 'priority-low' }
-                ].map((option) => (
-                  <label key={option.value} className="task-create-priority-option">
+          {/* Grid Layout for Meta */}
+          <div className="task-meta-grid">
+
+            {/* Priority - Full Width */}
+            <div className="task-row-full">
+              <label className="task-section-label">
+                <span className="material-symbols-outlined text-gray-400 text-[18px]">flag</span>
+                优先级
+              </label>
+              <div className="priority-grid">
+                {[
+                  { val: 'p0', label: 'P0', class: 'p0' },
+                  { val: 'p1', label: 'P1', class: 'p1' },
+                  { val: 'p2', label: 'P2', class: 'p2' },
+                  { val: 'p3', label: 'P3', class: 'p3' },
+                ].map((p) => (
+                  <label key={p.val} className="priority-option group">
                     <input
                       type="radio"
-                      className="task-create-priority-radio"
                       name="priority"
-                      value={option.value}
-                      checked={draft.priority === option.value}
-                      onChange={(e) => updateDraft({ priority: e.target.value as 'p0' | 'p1' | 'p2' | 'p3' })}
-                      disabled={isSubmitting}
+                      className="priority-radio peer"
+                      value={p.val}
+                      checked={priority === p.val}
+                      onChange={e => setPriority(e.target.value as TaskPriority)}
                     />
-                    <div className="task-create-priority-option-content">
-                      <div className={`task-create-priority-dot ${option.color}`}></div>
-                      <span>{option.label}</span>
+                    <div className="priority-card">
+                      <div className={`priority-dot ${p.class}`}></div>
+                      <span className="text-sm font-medium">{p.label}</span>
                     </div>
                   </label>
-                ))
-              }
-            </div>
-          </div>
-          
-          {/* Tags Input */}
-          <div className="task-create-form-group">
-            <label className="task-create-form-label">
-              <span className="material-symbols-outlined task-create-label-icon">sell</span>
-              标签
-            </label>
-            <div className="task-create-tags-container">
-              {/* Existing tags */}
-              <div className="task-create-tags-list">
-                {draft.tags && draft.tags.map((tag, index) => (
-                  <span key={index} className="task-create-tag-item">
-                    {tag}
-                    <button
-                      type="button"
-                      className="task-create-tag-remove"
-                      onClick={() => {
-                        const newTags = draft.tags?.filter((_, i) => i !== index) || [];
-                        updateDraft({ tags: newTags });
-                      }}
-                      disabled={isSubmitting}
-                    >
-                      &times;
-                    </button>
-                  </span>
                 ))}
               </div>
-              {/* New tag input */}
-              <div className="task-create-tag-input-wrapper">
+            </div>
+
+            {/* Tags - Full Width */}
+            <div className="task-row-full">
+              <label className="task-section-label">
+                <span className="material-symbols-outlined text-gray-400 text-[18px]">sell</span>
+                标签
+              </label>
+              <div className="tags-container">
+                {tags.map(tag => (
+                  <div key={tag} className="tag-item">
+                    <span>{tag}</span>
+                    <button onClick={() => handleRemoveTag(tag)} className="tag-remove-btn">
+                      <span className="material-symbols-outlined text-[16px] align-middle">close</span>
+                    </button>
+                  </div>
+                ))}
                 <input
                   type="text"
-                  className="task-create-form-input task-create-tag-input"
-                  placeholder="添加标签..."
-                  value={draft.newTagInput || ''}
-                  onChange={(e) => updateDraft({ newTagInput: e.target.value })}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && draft.newTagInput?.trim()) {
-                      e.preventDefault();
-                      const newTag = draft.newTagInput.trim();
-                      if (newTag && (!draft.tags || !draft.tags.includes(newTag))) {
-                        const newTags = [...(draft.tags || []), newTag];
-                        updateDraft({ tags: newTags, newTagInput: '' });
-                      }
-                    }
-                  }}
-                  disabled={isSubmitting}
+                  className="tag-input"
+                  placeholder="+ 添加标签 (Enter)"
+                  value={newTagInput}
+                  onChange={e => setNewTagInput(e.target.value)}
+                  onKeyPress={e => e.key === 'Enter' && handleAddTag()}
                 />
               </div>
             </div>
+
+            {/* Periodicity - Full Width */}
+            <div className="task-row-full">
+              <div className="periodicity-toggle-row">
+                <label className="task-section-label mb-0">
+                  <span className="material-symbols-outlined text-gray-400 text-[18px]">update</span>
+                  周期性任务
+                </label>
+                <label className="periodicity-switch">
+                  <input
+                    type="checkbox"
+                    className="switch-input"
+                    checked={isRecurring}
+                    onChange={e => setIsRecurring(e.target.checked)}
+                  />
+                  <div className="switch-slider"></div>
+                  <span className="switch-label-text">{isRecurring ? '已启用' : '未启用'}</span>
+                </label>
+              </div>
+
+              {isRecurring && (
+                <div className="periodicity-panel">
+                  {/* Frequency */}
+                  <div className="periodicity-row">
+                    <span className="periodicity-label">重复频率</span>
+                    <div className="periodicity-controls">
+                      <span className="text-sm">每</span>
+                      <input
+                        type="number"
+                        min="1"
+                        className="input-sm w-16 text-center"
+                        value={periodicity.interval}
+                        onChange={e => setPeriodicity({ ...periodicity, interval: parseInt(e.target.value) || 1 })}
+                      />
+                      <select
+                        className="input-sm flex-1"
+                        value={periodicity.strategy}
+                        onChange={e => setPeriodicity({ ...periodicity, strategy: e.target.value })}
+                      >
+                        <option value="day">天 (Days)</option>
+                        <option value="week">周 (Weeks)</option>
+                        <option value="month">月 (Months)</option>
+                        <option value="year">年 (Years)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Start Date */}
+                  <div className="periodicity-row">
+                    <span className="periodicity-label">开始时间</span>
+                    <div className="flex gap-2 w-full">
+                      <input
+                        type="date"
+                        className="input-sm flex-1"
+                        value={periodicity.start_date}
+                        onChange={e => setPeriodicity({ ...periodicity, start_date: e.target.value })}
+                      />
+                      <input
+                        type="time"
+                        className="input-sm w-32"
+                        value={periodicityTime}
+                        onChange={e => setPeriodicityTime(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* End Condition */}
+                  <div className="periodicity-row items-start">
+                    <span className="periodicity-label pt-2">结束条件</span>
+                    <div className="end-conditions">
+                      <label className="radio-row">
+                        <input
+                          type="radio"
+                          name="end_rule"
+                          className="w-4 h-4 text-primary"
+                          checked={periodicity.end_rule === 'never'}
+                          onChange={() => setPeriodicity({ ...periodicity, end_rule: 'never' })}
+                        />
+                        <span>永不结束</span>
+                      </label>
+
+                      <label className="radio-row">
+                        <input
+                          type="radio"
+                          name="end_rule"
+                          className="w-4 h-4 text-primary"
+                          checked={periodicity.end_rule === 'date'}
+                          onChange={() => setPeriodicity({ ...periodicity, end_rule: 'date' })}
+                        />
+                        <span>于指定日期</span>
+                        <input
+                          type="date"
+                          className="input-sm ml-2"
+                          disabled={periodicity.end_rule !== 'date'}
+                          value={periodicity.end_date || ''}
+                          onChange={e => setPeriodicity({ ...periodicity, end_date: e.target.value })}
+                        />
+                      </label>
+
+                      <label className="radio-row">
+                        <input
+                          type="radio"
+                          name="end_rule"
+                          className="w-4 h-4 text-primary"
+                          checked={periodicity.end_rule === 'count'}
+                          onChange={() => setPeriodicity({ ...periodicity, end_rule: 'count' })}
+                        />
+                        <span>发生次数后</span>
+                        <div className="flex items-center gap-2 ml-2">
+                          <input
+                            type="number"
+                            className="input-sm w-20"
+                            disabled={periodicity.end_rule !== 'count'}
+                            value={periodicity.end_count || 10}
+                            onChange={e => setPeriodicity({ ...periodicity, end_count: parseInt(e.target.value) || 1 })}
+                          />
+                          <span className="text-xs text-gray-500">次</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          
-          {/* Auto create task note option */}
-          <div className="task-create-form-group task-create-checkbox-group">
-            <label className="task-create-checkbox-label">
-              <input
-                type="checkbox"
-                checked={draft.autoCreateNote || false}
-                onChange={(e) => updateDraft({ autoCreateNote: e.target.checked })}
-                disabled={isSubmitting}
-              />
-              <span className="task-create-checkbox-text">
-                <span className="material-symbols-outlined task-create-label-icon">description</span>
-                自动创建任务笔记
-              </span>
-            </label>
-          </div>
-        </form>
+
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+        </div>
 
         {/* Footer */}
-        <div className="task-create-modal-footer">
-          <button
-            type="button"
-            className="task-create-modal-cancel"
-            onClick={handleClose}
-            disabled={isSubmitting}
-          >
-            取消
+        <div className="task-modal-footer">
+          <button className="btn-delete" disabled>
+            {/* Delete functionality placeholder, maybe only for edit mode */}
           </button>
-          <button
-            type="submit"
-            form="task-create-form"
-            className="task-create-modal-submit"
-            disabled={isSubmitting || !draft.title.trim()}
-            onClick={handleSubmit}
-          >
-            {isSubmitting ? (
-              <>
-                <span className="material-symbols-outlined">pending</span>
-                创建中...
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined">check</span>
-                确认创建
-              </>
-            )}
-          </button>
+
+          <div className="footer-actions">
+            <button className="btn-cancel" onClick={onClose} disabled={isSubmitting}>
+              取消
+            </button>
+            <button className="btn-save" onClick={handleSubmit} disabled={isSubmitting}>
+              <span className="material-symbols-outlined text-[20px]">save</span>
+              {isSubmitting ? '保存中...' : '保存任务'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

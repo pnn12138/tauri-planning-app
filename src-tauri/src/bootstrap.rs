@@ -16,3 +16,8 @@ pub fn init_vault_state(app: &tauri::App) -> tauri::Result<VaultState> {
     })
 }
 
+pub fn init_app_state() -> crate::state::AppState {
+    crate::state::AppState {
+        http_client: reqwest::Client::new(),
+    }
+}

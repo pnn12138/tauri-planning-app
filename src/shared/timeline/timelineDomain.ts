@@ -95,24 +95,54 @@ const normalizeTime = (date: Date, snapMinutes: number): Date => {
 // Normalize events: handle overlaps, crop to day range, sort
 export const normalizeEvents = (tasks: Task[], config: TimelineConfig): Task[] => {
   const { dayStart, dayEnd, snapMinutes } = config;
-  
+
   // Filter tasks with at least scheduled start time
   let timelineTasks = tasks.filter(task => {
     return task.scheduled_start;
   });
-  
+
   // Convert to Date objects and normalize
   const normalizedTasks = timelineTasks.map(task => {
-    const originalStart = new Date(task.scheduled_start!);
-    
+    let originalStart: Date;
+
+    // Determine the effective start time for this day
+    // Check if this is a periodic occurrence that needs date adjustment
+    if (task.periodicity && task.periodicity.start_date) {
+      // For periodic tasks, we construct the start time using the task's time but ON the current day
+      // This relies on normalizeEvents being called with tasks ALREADY filtered for this day/range
+      // But normalizeEvents logic creates day range from task's own date.
+      // We need to pass the target date context. 
+      // Ideally, normalizeEvents should infer the "target date" or we handle strictly in `buildDayTimelineModel`.
+      // Let's rely on scheduled_start being present. 
+      // If task is periodic and filtered into this day, we must pretend its scheduled_start IS today.
+
+      // However, `normalizeEvents` iterates ALL filtered tasks.
+      // We need to know WHICH day we are normalizing for if we overlap?
+      // Actually `normalizeEvents` is called by `buildDayTimelineModel` which targets a specific `baseDate`.
+      // But `normalizeEvents` function signature doesn't take `baseDate`.
+      // We should update `normalizeEvents` signature or logic.
+
+      // Actually, let's look at `buildDayTimelineModel`. 
+      // `tasksForDate` are already filtered.
+      // But the `task` object is cloned? No.
+      // If we modify `task` here it might affect other things.
+      // `normalizeEvents` returns NEW objects.
+
+      // We should fix the scheduled_start in `buildDayTimelineModel` BEFORE calling `normalizeEvents`?
+      // YES.
+      originalStart = new Date(task.scheduled_start!);
+    } else {
+      originalStart = new Date(task.scheduled_start!);
+    }
+
     // Create day range for the task's date
     const taskDate = new Date(originalStart);
     const dayStartDate = createDateForTime(dayStart, taskDate);
     const dayEndDate = createDateForTime(dayEnd, taskDate);
-    
+
     // Normalize start time
     const start = normalizeTime(originalStart, snapMinutes);
-    
+
     // Calculate end time based on priority: scheduled_end > estimate_min > default 30 minutes
     let end: Date;
     if (task.scheduled_end) {
@@ -122,28 +152,28 @@ export const normalizeEvents = (tasks: Task[], config: TimelineConfig): Task[] =
       const durationMinutes = task.estimate_min || 30;
       end = new Date(start.getTime() + durationMinutes * 60 * 1000);
     }
-    
+
     // Normalize end time
     const normalizedEnd = normalizeTime(end, snapMinutes);
-    
+
     // Crop to day range
     const croppedStart = start < dayStartDate ? dayStartDate : start;
     const croppedEnd = normalizedEnd > dayEndDate ? dayEndDate : normalizedEnd;
-    
+
     return {
       ...task,
       scheduled_start: croppedStart.toISOString(),
       scheduled_end: croppedEnd.toISOString(),
     };
   });
-  
+
   // Sort by start time
   normalizedTasks.sort((a, b) => {
     const aStart = new Date(a.scheduled_start!).getTime();
     const bStart = new Date(b.scheduled_start!).getTime();
     return aStart - bStart;
   });
-  
+
   // Merge overlapping tasks - only merge tasks on the same day
   const mergedTasks: Task[] = [];
   for (const task of normalizedTasks) {
@@ -151,15 +181,15 @@ export const normalizeEvents = (tasks: Task[], config: TimelineConfig): Task[] =
       mergedTasks.push(task);
       continue;
     }
-    
+
     const lastTask = mergedTasks[mergedTasks.length - 1];
     const lastTaskEnd = new Date(lastTask.scheduled_end!);
     const currentTaskStart = new Date(task.scheduled_start!);
     const currentTaskEnd = new Date(task.scheduled_end!);
-    
+
     // Check if tasks are on the same day
     const isSameDay = lastTaskEnd.toDateString() === currentTaskStart.toDateString();
-    
+
     if (isSameDay && currentTaskStart <= lastTaskEnd) {
       // Overlapping or adjacent tasks on the same day, merge them
       const mergedEnd = new Date(Math.max(lastTaskEnd.getTime(), currentTaskEnd.getTime()));
@@ -172,7 +202,7 @@ export const normalizeEvents = (tasks: Task[], config: TimelineConfig): Task[] =
       mergedTasks.push(task);
     }
   }
-  
+
   return mergedTasks;
 };
 
@@ -182,18 +212,133 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
   const dayStartDate = createDateForTime(dayStart, baseDate);
   const dayEndDate = createDateForTime(dayEnd, baseDate);
   const totalMinutes = timeToMinutes(dayEnd) - timeToMinutes(dayStart);
-  
-  // First, filter tasks to only include those for the specified date
+
+  // First, filter tasks to only include those for the specific date
   const tasksForDate = tasks.filter(task => {
-    if (!task.scheduled_start) return false;
-    const taskStart = new Date(task.scheduled_start);
-    // Check if task is on the same day as baseDate
-    return taskStart.toDateString() === baseDate.toDateString();
+    const taskDateStr = baseDate.toISOString().split('T')[0];
+
+    // 1. Check scheduled_start (exact match)
+    if (task.scheduled_start) {
+      const taskStart = new Date(task.scheduled_start);
+      // Check if task is on the same day as baseDate
+      if (taskStart.toDateString() === baseDate.toDateString()) {
+        return true;
+      }
+    }
+
+    // 2. Check periodicity
+    if (task.periodicity && task.periodicity.start_date) {
+      const periodicityStart = new Date(task.periodicity.start_date);
+      // Normalize baseDate for comparison (midnight)
+      const currentDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+      const startDay = new Date(periodicityStart.getFullYear(), periodicityStart.getMonth(), periodicityStart.getDate());
+
+      // If current day is before start date, return false
+      if (currentDay.getTime() < startDay.getTime()) {
+        return false;
+      }
+
+      // Check end_rule
+      if (task.periodicity.end_rule === 'date' && task.periodicity.end_date) {
+        const endDate = new Date(task.periodicity.end_date);
+        const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+        if (currentDay.getTime() > endDay.getTime()) {
+          return false;
+        }
+      }
+
+      // Calculate recurrence
+      const diffTime = currentDay.getTime() - startDay.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const interval = Math.max(1, task.periodicity.interval);
+
+      let isRecurrence = false;
+      switch (task.periodicity.strategy) {
+        case 'day':
+          isRecurrence = diffDays % interval === 0;
+          break;
+        case 'week':
+          isRecurrence = diffDays % (7 * interval) === 0;
+          break;
+        case 'month':
+          // Simple month check: same day of month
+          // And total months difference is multiple of interval
+          if (currentDay.getDate() !== startDay.getDate()) {
+            isRecurrence = false;
+          } else {
+            const monthDiff = (currentDay.getFullYear() - startDay.getFullYear()) * 12 + (currentDay.getMonth() - startDay.getMonth());
+            isRecurrence = monthDiff % interval === 0;
+          }
+          break;
+        case 'year':
+          isRecurrence = currentDay.getDate() === startDay.getDate() &&
+            currentDay.getMonth() === startDay.getMonth() &&
+            (currentDay.getFullYear() - startDay.getFullYear()) % interval === 0;
+          break;
+        default:
+          isRecurrence = false;
+      }
+
+      return isRecurrence;
+    }
+
+    return false;
   });
-  
-  // Normalize only the filtered tasks
-  const normalizedTasks = normalizeEvents(tasksForDate, config);
-  
+
+  // Normalize only the filtered tasks - but first ensure they are mapped to the simplified day if periodic
+  const tasksMappedToDay = tasksForDate.map(task => {
+    // If it's a periodic task matching this day (checked by filter above)
+    // We need to map it to the current day if it's not already
+
+    // If it's the exact scheduled task, return as is
+    if (task.scheduled_start) {
+      const checkStart = new Date(task.scheduled_start);
+      if (checkStart.toDateString() === baseDate.toDateString()) {
+        return task;
+      }
+    }
+
+    // Otherwise it must be a periodic occurrence
+    if (task.periodicity && task.periodicity.start_date) {
+      let timeSource = task.scheduled_start;
+      // Prefer time from periodicity start_date if available (T-format)
+      if (task.periodicity.start_date.includes('T')) {
+        timeSource = task.periodicity.start_date;
+      }
+
+      if (timeSource) {
+        const timeDate = new Date(timeSource);
+        // Create new date on baseDate with time from timeSource
+        const newStart = new Date(baseDate);
+        newStart.setHours(timeDate.getHours(), timeDate.getMinutes(), timeDate.getSeconds());
+
+        // Adjust end time similarly if exists
+        let newEnd: string | undefined = undefined;
+
+        // Calculate duration from original task
+        let duration = 30 * 60 * 1000; // default 30m
+        if (task.scheduled_end && task.scheduled_start) {
+          duration = new Date(task.scheduled_end).getTime() - new Date(task.scheduled_start).getTime();
+        } else if (task.estimate_min) {
+          duration = task.estimate_min * 60 * 1000;
+        }
+
+        const newEndDate = new Date(newStart.getTime() + duration);
+        newEnd = newEndDate.toISOString();
+
+        return {
+          ...task,
+          scheduled_start: newStart.toISOString(),
+          scheduled_end: newEnd,
+          id: `${task.id}-${baseDate.getTime()}` // Virtual ID for the view logic
+        };
+      }
+    }
+    return task;
+  });
+
+  const normalizedTasks = normalizeEvents(tasksMappedToDay, config);
+
   // Create busy blocks - all normalized tasks are for the specified date
   let busyBlocks: BusyBlock[] = normalizedTasks
     .map(task => {
@@ -203,7 +348,7 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
         (end.getTime() - start.getTime()) / (1000 * 60),
         minSlotMinutes
       );
-      
+
       return {
         id: `busy-${task.id}`,
         type: 'busy',
@@ -213,13 +358,13 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
         task,
       };
     });
-  
+
   // Sort busy blocks by start time
   busyBlocks.sort((a, b) => a.start.getTime() - b.start.getTime());
-  
+
   // Create free blocks
   const freeBlocks: FreeBlock[] = [];
-  
+
   // Handle case with no tasks (full day free)
   if (busyBlocks.length === 0) {
     freeBlocks.push({
@@ -231,7 +376,7 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
     });
   } else {
     let currentStart = dayStartDate;
-    
+
     for (const busyBlock of busyBlocks) {
       if (currentStart < busyBlock.start) {
         // Add free block between currentStart and busyBlock.start
@@ -239,7 +384,7 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
           (busyBlock.start.getTime() - currentStart.getTime()) / (1000 * 60),
           minSlotMinutes
         );
-        
+
         freeBlocks.push({
           id: `free-${currentStart.getTime()}-${busyBlock.start.getTime()}`,
           type: 'free',
@@ -248,18 +393,18 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
           durationMinutes,
         });
       }
-      
+
       // Update currentStart to busyBlock.end
       currentStart = new Date(busyBlock.end);
     }
-    
+
     // Add final free block if there's time left in the day
     if (currentStart < dayEndDate) {
       const durationMinutes = Math.max(
         (dayEndDate.getTime() - currentStart.getTime()) / (1000 * 60),
         minSlotMinutes
       );
-      
+
       freeBlocks.push({
         id: `free-${currentStart.getTime()}-${dayEndDate.getTime()}`,
         type: 'free',
@@ -269,11 +414,11 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
       });
     }
   }
-  
+
   // Calculate now line position
   const now = new Date();
   let nowPosition = 0;
-  
+
   if (now >= dayStartDate && now <= dayEndDate) {
     // Now is within the day range
     const minutesSinceDayStart = (now.getTime() - dayStartDate.getTime()) / (1000 * 60);
@@ -285,12 +430,12 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
     // Now is after day end
     nowPosition = 100;
   }
-  
+
   const nowLine: NowLine = {
     time: now,
     position: nowPosition,
   };
-  
+
   return {
     busyBlocks,
     freeBlocks,
@@ -303,7 +448,7 @@ export const buildTimelineModel = (tasks: Task[], config: TimelineConfig, baseDa
   if (viewMode === 'day') {
     return buildDayTimelineModel(tasks, config, baseDate);
   }
-  
+
   // Calculate week start (Monday) and week end (Sunday)
   const weekStart = new Date(baseDate);
   const dayOfWeek = weekStart.getDay();
@@ -311,11 +456,11 @@ export const buildTimelineModel = (tasks: Task[], config: TimelineConfig, baseDa
   const diff = weekStart.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
   weekStart.setDate(diff);
   weekStart.setHours(0, 0, 0, 0);
-  
+
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
   weekEnd.setHours(23, 59, 59, 999);
-  
+
   // Generate timeline models for each day of the week
   const days: DayTimelineModel[] = [];
   for (let i = 0; i < 7; i++) {
@@ -323,7 +468,7 @@ export const buildTimelineModel = (tasks: Task[], config: TimelineConfig, baseDa
     currentDay.setDate(weekStart.getDate() + i);
     days.push(buildDayTimelineModel(tasks, config, currentDay));
   }
-  
+
   return {
     days,
     weekStart,

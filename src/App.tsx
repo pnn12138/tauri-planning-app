@@ -40,6 +40,11 @@ import { removeWebTab, useWebStore } from "./features/web/web.store";
 import CommandPalette from "./shared/ui/CommandPalette";
 import { registerCommand as registerCoreCommand } from "./shared/commands/commands.store";
 import { pluginHost } from "./shared/plugin_host/host";
+import { setSmartAddOpen, setSettingsOpen, useAiStore, toggleChat } from "./features/ai/ai.store";
+import AiSidebar from "./features/ai/AiSidebar";
+import AiChatView from "./features/ai/AiChatView";
+import AiChatPanel from "./features/ai/AiChatPanel";
+import { AiSettingsModal } from "./features/ai/AiSettingsModal";
 
 import "./App.css";
 
@@ -161,6 +166,7 @@ function App() {
   const isSaving = Boolean(activeEditorState?.isSaving);
   const webByTab = useWebStore((state) => state.webByTab);
   const activeWebState = activeTab?.type === "web" ? webByTab[activeTabId] ?? null : null;
+  const { isChatOpen, chatMode } = useAiStore();
 
   const handleOpenWebTab = useCallback(
     (url: string, activate = true) => {
@@ -422,6 +428,24 @@ function App() {
     }
   }, [refreshExplorer]);
 
+  // Check for legacy data when vault is selected
+  useEffect(() => {
+    if (!isTauriRuntime || !vaultRoot) return;
+
+    const check = async () => {
+      try {
+        const [hasDb, hasFiles] = await checkLegacyData();
+        if (hasDb || hasFiles) {
+          setShowMigrationModal(true);
+        }
+      } catch (e) {
+        console.error("Failed to check legacy data:", e);
+      }
+    };
+
+    check();
+  }, [isTauriRuntime, vaultRoot]);
+
   const handleOpenFile = useCallback(
     async (path: string) => {
       await handleOpenMarkdownTab(path, true);
@@ -454,6 +478,18 @@ function App() {
       title: "Open Command Palette",
       source: "core",
       run: () => setIsCommandPaletteOpen(true),
+    });
+    registerCoreCommand({
+      key: "core:ai-settings",
+      title: "AI Settings",
+      source: "core",
+      run: () => setSettingsOpen(true),
+    });
+    registerCoreCommand({
+      key: "core:smart-add",
+      title: "Smart Add Tasks",
+      source: "core",
+      run: () => setSmartAddOpen(true),
     });
   }, [handleSelectVault]);
 
@@ -811,14 +847,14 @@ function App() {
                 )}
               </button>
             ))}
-              <button
-                type="button"
-                className="tab-add"
-                onClick={handleNewTab}
-                data-tauri-drag-region="false"
-              >
-                +
-              </button>
+            <button
+              type="button"
+              className="tab-add"
+              onClick={handleNewTab}
+              data-tauri-drag-region="false"
+            >
+              +
+            </button>
           </div>
           <div className="top-actions" data-tauri-drag-region="false">
             <div className="top-left">
@@ -852,6 +888,16 @@ function App() {
               >
                 Plugins
               </button>
+              <button
+                type="button"
+                className={`icon-button ${isChatOpen ? "is-active" : ""}`}
+                onClick={() => toggleChat()}
+                aria-label="AI Chat"
+                title="AI Chat"
+                data-tauri-drag-region="false"
+              >
+                🤖
+              </button>
             </div>
             <div className="top-right">
               {status && (
@@ -877,40 +923,54 @@ function App() {
       </header>
 
       <div className="workspace" style={{ paddingTop: `${workspacePaddingTop}px` }}>
-        {sidebarOpen && (
-          <aside className="sidebar">
-            <div className="vault-meta">
-              <button
-                type="button"
-                className="vault-name-button"
-                onClick={handleSelectVault}
-                disabled={isSaving}
-                data-tauri-drag-region="false"
-              >
-                {vaultDisplayName}
-              </button>
-            </div>
-            <ExplorerPanel
-              vaultRoot={vaultRoot}
-              openTab={handleOpenFile}
-              activePath={activeMarkdownTab?.filePath ?? null}
-              onRenameEntry={handleExplorerRenameEntry}
-              onDeleteEntry={handleExplorerDeleteEntry}
-            />
-          </aside>
+        {isChatOpen && chatMode === 'fullscreen' ? (
+          // AI Chat Fullscreen Mode
+          <>
+            <AiSidebar />
+            <AiChatView />
+          </>
+        ) : (
+          // Normal Mode (with optional panel)
+          <>
+            {sidebarOpen && (
+              <aside className="sidebar">
+                <div className="vault-meta">
+                  <button
+                    type="button"
+                    className="vault-name-button"
+                    onClick={handleSelectVault}
+                    disabled={isSaving}
+                    data-tauri-drag-region="false"
+                  >
+                    {vaultDisplayName}
+                  </button>
+                </div>
+                <ExplorerPanel
+                  vaultRoot={vaultRoot}
+                  openTab={handleOpenFile}
+                  activePath={activeMarkdownTab?.filePath ?? null}
+                  onRenameEntry={handleExplorerRenameEntry}
+                  onDeleteEntry={handleExplorerDeleteEntry}
+                />
+              </aside>
+            )}
+
+            <main className="content-pane">
+              {activeTab?.type === "home" && (
+                <Home hasVault={!!vaultRoot} onSelectVault={handleSelectVault} vaultRoot={vaultRoot} />
+              )}
+
+              {activeTab?.type === "markdown" && (
+                <MarkdownTabView tabId={activeTabId} />
+              )}
+
+              <WebTabView tabId={activeTabId} />
+            </main>
+
+            {/* AI Chat Panel (right sidebar) */}
+            {isChatOpen && chatMode === 'panel' && <AiChatPanel />}
+          </>
         )}
-
-        <main className="content-pane">
-          {activeTab?.type === "home" && (
-            <Home hasVault={!!vaultRoot} onSelectVault={handleSelectVault} vaultRoot={vaultRoot} />
-          )}
-
-          {activeTab?.type === "markdown" && (
-            <MarkdownTabView tabId={activeTabId} />
-          )}
-
-          <WebTabView tabId={activeTabId} />
-        </main>
       </div>
 
       {warnings.length > 0 && (
@@ -926,6 +986,7 @@ function App() {
 
       <CommandPalette open={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
       {isPluginsOpen && <PluginsPanel onClose={() => setIsPluginsOpen(false)} />}
+      <AiSettingsModal />
 
     </div>
   );

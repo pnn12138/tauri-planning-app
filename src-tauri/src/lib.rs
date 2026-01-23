@@ -18,11 +18,12 @@ pub fn run() {
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .init();
-    
+
     tauri::Builder::default()
         .setup(|app| {
             let state = bootstrap::init_vault_state(app)?;
             app.manage(state);
+            app.manage(bootstrap::init_app_state());
             Ok(())
         })
         .plugin(webview_bridge::init_webview_bridge())
@@ -53,7 +54,10 @@ pub fn run() {
             commands::planning_cmd::planning_reorder_tasks,
             commands::planning_cmd::planning_get_ui_state,
             commands::planning_cmd::planning_set_ui_state,
-            commands::planning_cmd::planning_delete_task
+            commands::planning_cmd::planning_delete_task,
+            commands::planning_cmd::planning_ai_smart_capture,
+            commands::planning_cmd::planning_get_ai_settings,
+            commands::planning_cmd::planning_save_ai_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,25 @@
+export interface AiSettings {
+    provider: 'gemini' | 'openai' | 'ollama';
+    base_url: string;
+    api_key: string;
+    model_name: string;
+}
+
+export interface SmartCaptureResponse {
+    tasks: any[]; // will map to CreateTaskInput
+}
+
+export interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+}
+
+export interface ChatSession {
+    id: string;
+    title: string;
+    messages: ChatMessage[];
+    createdAt: number;
+    updatedAt: number;
+}

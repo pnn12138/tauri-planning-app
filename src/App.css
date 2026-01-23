@@ -250,7 +250,7 @@ textarea {
   z-index: 20;
 }
 
-.top-bar > * {
+.top-bar>* {
   position: relative;
   z-index: 1;
 }
@@ -673,6 +673,27 @@ button.ghost.is-danger {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  overflow: hidden;
+  /* Prevent pane itself from scrolling */
+}
+
+/* Week view specific layout override */
+.main-pane.view-mode-week {
+  display: flex;
+  flex-direction: row;
+}
+
+.view-mode-week .timeline-sidebar {
+  flex: 1;
+  min-width: 0;
+  /* Allow shrinking */
+}
+
+.view-mode-week .kanban-section {
+  flex: 0 0 380px;
+  /* Fixed width to accommodate cards properly */
+  min-width: 350px;
+  max-width: 420px;
 }
 
 .webview-pane {
@@ -1023,9 +1044,12 @@ button.ghost.is-danger {
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.8;
   }
@@ -1083,16 +1107,20 @@ button.ghost.is-danger {
   overflow: hidden;
   flex-grow: 1;
   flex-shrink: 1;
-  flex-basis: 15%; /* 默认占比30% */
-  min-width: 280px; /* 最小宽度 */
+  flex-basis: 15%;
+  /* 默认占比30% */
+  min-width: 280px;
+  /* 最小宽度 */
 }
 
 /* Adjust timeline sidebar ratio for week view */
 .view-mode-week .timeline-sidebar {
   flex-grow: 4;
   flex-shrink: 1;
-  flex-basis: 80%; /* 周视图占比80% */
-  min-width: 600px; /* 周视图最小宽度 */
+  flex-basis: 80%;
+  /* 周视图占比80% */
+  min-width: 600px;
+  /* 周视图最小宽度 */
 }
 
 .timeline-header {
@@ -1105,7 +1133,7 @@ button.ghost.is-danger {
   backdrop-filter: blur(4px);
 }
 
-.timeline-header > :first-child {
+.timeline-header> :first-child {
   margin-right: auto;
 }
 
@@ -1312,6 +1340,7 @@ button.ghost.is-danger {
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
+  overflow: hidden;
 }
 
 /* 已排期块样式 */
@@ -1686,7 +1715,8 @@ button.ghost.is-danger {
 .kanban-section {
   flex-grow: 2;
   flex-shrink: 1;
-  flex-basis: 70%; /* 默认占比70% */
+  flex-basis: 70%;
+  /* 默认占比70% */
   display: flex;
   flex-direction: column;
   background-color: #f8fafc;
@@ -1695,9 +1725,14 @@ button.ghost.is-danger {
 
 /* Adjust kanban section ratio for week view */
 .view-mode-week .kanban-section {
-  flex-grow: 1;
-  flex-shrink: 1;
-  flex-basis: 20%; /* 周视图占比20% */
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex-basis: 20%;
+  /* Match main-pane rule */
+  min-width: 0;
+  /* Required for scrollbar to appear */
+  display: flex;
+  flex-direction: column;
 }
 
 .kanban-header {
@@ -1823,17 +1858,20 @@ button.ghost.is-danger {
 }
 
 .view-mode-week .kanban-tasks {
-  flex-direction: column;
-  gap: 8px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  min-height: 150px;
+  flex-direction: row;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 120px;
+  padding-bottom: 8px;
+  /* For scrollbar */
 }
 
 .view-mode-week .task-card {
-  width: 100%;
+  width: 200px;
   flex-shrink: 0;
   margin-bottom: 0;
+  height: 100%;
 }
 
 .kanban-column {
@@ -1903,20 +1941,56 @@ button.ghost.is-danger {
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 200px; /* 确保空列有足够的拖拽区域 */
+  min-height: 200px;
+  /* 确保空列有足够的拖拽区域 */
 }
 
 .task-card {
-  background-color: var(--surface);
+  background: #ffffff;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transition: all 0.2s ease;
+  overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* Carousel-specific card styling - single row layout */
+.task-carousel-container .task-card {
+  flex-direction: row;
+  align-items: center;
+  padding: 16px;
+  min-height: auto;
+}
+
+.task-carousel-container .task-card-content {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+}
+
+.task-carousel-container .task-card-header {
+  flex-shrink: 0;
   margin-bottom: 0;
+}
+
+.task-carousel-container .task-title {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+}
+
+.task-carousel-container .task-card-footer {
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
 }
 
 /* Adjust task cards in week view */
@@ -1955,11 +2029,9 @@ button.ghost.is-danger {
 
 .task-card-content {
   padding: 16px;
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: background-color 0.2s ease;
+  gap: 12px;
   cursor: grab;
 }
 
@@ -2029,10 +2101,7 @@ button.ghost.is-danger {
   border-radius: 4px;
 }
 
-.timeline-hour-line:hover {
-  background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
-}
+
 
 /* Drag Indicator */
 .timeline-drag-indicator {
@@ -2130,7 +2199,8 @@ button.ghost.is-danger {
   position: relative;
   margin-bottom: 8px;
   transition: all 0.2s ease;
-  min-height: 80px; /* 确保占位符准确保持空间 */
+  min-height: 80px;
+  /* 确保占位符准确保持空间 */
 }
 
 /* 拖拽中卡片的视觉增强 */
@@ -2152,13 +2222,13 @@ button.ghost.is-danger {
 }
 
 .task-card-footer {
-  padding: 8px 16px;
-  background-color: #f8fafc;
-  border-top: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 8px 16px;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
   cursor: pointer;
 }
 
@@ -2184,6 +2254,10 @@ button.ghost.is-danger {
   border-radius: 18px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
   overflow: hidden;
+  max-height: 85vh;
+  /* Limit height */
+  display: flex;
+  flex-direction: column;
 }
 
 .task-edit-modal-header {
@@ -2312,49 +2386,44 @@ button.ghost.is-danger {
 }
 
 .task-tag {
-  font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-right: 6px;
-  margin-bottom: 4px;
-  display: inline-block;
-}
-
-.task-priority {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-right: 6px;
-  margin-bottom: 4px;
-  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
   background-color: #e2e8f0;
   color: #475569;
 }
 
+.task-priority {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
 .task-priority.p0 {
-  background-color: rgba(225, 29, 72, 0.15);
-  color: #E11D48;
+  background-color: #ffe4e6;
+  color: #e11d48;
 }
 
 .task-priority.high,
 .task-priority.p1 {
-  background-color: rgba(242, 108, 108, 0.15);
-  color: #F26C6C;
+  background-color: #fee2e2;
+  color: #ef4444;
 }
 
 .task-priority.medium,
 .task-priority.p2 {
-  background-color: rgba(251, 191, 36, 0.25);
-  color: #F59E0B;
+  background-color: #fef3c7;
+  color: #d97706;
 }
 
 .task-priority.low,
 .task-priority.p3 {
-  background-color: rgba(77, 171, 77, 0.15);
-  color: #4DAB4D;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .task-tags {
@@ -2365,11 +2434,12 @@ button.ghost.is-danger {
 }
 
 .task-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #1e293b;
-  line-height: 1.4;
+  line-height: 1.5;
   margin: 0;
+  padding: 2px 0;
 }
 
 .task-card.active .task-title {
@@ -2397,6 +2467,12 @@ button.ghost.is-danger {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+}
+
+.task-header-left,
+.task-header-right {
+  display: flex;
+  align-items: center;
 }
 
 .task-card-avatar {
@@ -2501,9 +2577,12 @@ button.ghost.is-danger {
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
@@ -2755,7 +2834,8 @@ button.ghost.is-danger {
   border-bottom: 1px solid #e2e8f0;
   margin-bottom: 0;
   background-color: #f8fafc;
-  margin-left: 60px; /* 与左侧时间刻度宽度匹配 */
+  margin-left: 60px;
+  /* 与左侧时间刻度宽度匹配 */
 }
 
 .timeline-week-day-header {
@@ -2813,7 +2893,8 @@ button.ghost.is-danger {
 }
 
 .timeline-week-time-item {
-  height: 8.333%; /* 12小时 / 13刻度 */
+  height: 8.333%;
+  /* 12小时 / 13刻度 */
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2944,37 +3025,44 @@ button.ghost.is-danger {
 /* Material Symbols */
 .material-symbols-outlined {
   font-variation-settings:
-  'FILL' 0,
-  'wght' 400,
-  'GRAD' 0,
-  'opsz' 24;
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
 }
 
 /* Responsive */
 @media (max-width: 1024px) {
+
   /* Adjust week view sidebar ratio for medium screens */
   .view-mode-week .timeline-sidebar {
-    flex-basis: 55%; /* 中等屏幕周视图占比55% */
-    min-width: 500px; /* 中等屏幕最小宽度 */
+    flex-basis: 55%;
+    /* 中等屏幕周视图占比55% */
+    min-width: 500px;
+    /* 中等屏幕最小宽度 */
   }
 }
 
 @media (max-width: 768px) {
   .timeline-sidebar {
-    flex-basis: 40%; /* 平板设备默认占比40% */
-    min-width: 280px; /* 平板设备最小宽度 */
+    flex-basis: 40%;
+    /* 平板设备默认占比40% */
+    min-width: 280px;
+    /* 平板设备最小宽度 */
   }
-  
+
   /* Adjust week view sidebar for tablet */
   .view-mode-week .timeline-sidebar {
-    flex-basis: 70%; /* 平板设备周视图占比70% */
-    min-width: 400px; /* 平板设备周视图最小宽度 */
+    flex-basis: 70%;
+    /* 平板设备周视图占比70% */
+    min-width: 400px;
+    /* 平板设备周视图最小宽度 */
   }
-  
+
   .dashboard-header {
     padding: 0 16px;
   }
-  
+
   .dashboard-search {
     display: none;
   }
@@ -2984,7 +3072,7 @@ button.ghost.is-danger {
   .dashboard-main {
     flex-direction: column;
   }
-  
+
   .timeline-sidebar,
   .view-mode-week .timeline-sidebar {
     width: 100%;
@@ -2993,16 +3081,16 @@ button.ghost.is-danger {
     flex-grow: 1;
     flex-shrink: 1;
   }
-  
+
   /* Adjust week view for mobile */
   .view-mode-week .timeline-sidebar {
     height: 400px;
   }
-  
+
   .timeline-week-day-name {
     font-size: 11px;
   }
-  
+
   .timeline-week-day-date {
     font-size: 14px;
   }
@@ -3432,4 +3520,210 @@ button.ghost.is-danger {
 
 .schedule-editor-save-btn:hover {
   background: #2563eb;
+}
+
+/* ========================================
+   Weekly View Task Carousel Styles
+   ======================================== */
+
+/* Status Carousel Container */
+.status-carousel-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  background: #f9fafb;
+}
+
+/* Individual Status Carousel */
+.status-carousel {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.status-carousel:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Drag-over state for carousel */
+.status-carousel.dragging-over {
+  background: #f0f9ff;
+  border-color: #3b82f6;
+}
+
+/* Carousel Header */
+.status-carousel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.status-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-indicator.todo {
+  background: #6b7280;
+}
+
+.status-indicator.doing {
+  background: #3b82f6;
+}
+
+.status-indicator.verify {
+  background: #f59e0b;
+}
+
+.status-indicator.done {
+  background: #10b981;
+}
+
+.status-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.status-count {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+/* Carousel Body */
+.carousel-body {
+  position: relative;
+}
+
+.carousel-card-container {
+  position: relative;
+  min-height: 80px;
+  max-height: 200px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+  overflow: hidden;
+  width: 100%;
+}
+
+.carousel-card-container .empty-message {
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Ensure task cards don't overflow */
+.carousel-card-container>* {
+  max-width: 100%;
+}
+
+
+
+/* Carousel Controls */
+.carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.carousel-nav-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.carousel-nav-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.carousel-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.carousel-nav-btn svg {
+  color: #6b7280;
+}
+
+.carousel-nav-btn:hover:not(:disabled) svg {
+  color: #374151;
+}
+
+/* Carousel Pagination */
+.carousel-pagination {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+}
+
+.carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.carousel-dot:hover {
+  background: #9ca3af;
+}
+
+.carousel-dot.active {
+  background: #374151;
+  width: 20px;
+  border-radius: 3px;
+}
+
+/* Responsive adjustments for carousel */
+@media (max-width: 768px) {
+  .status-carousel-container {
+    gap: 16px;
+    padding: 12px;
+  }
+
+  .status-carousel {
+    padding: 12px;
+  }
+
+  .carousel-card-container {
+    min-height: 150px;
+  }
 }

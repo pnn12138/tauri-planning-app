@@ -1,8 +1,23 @@
 // Task status enum
-export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
+export type TaskStatus = 'todo' | 'doing' | 'verify' | 'done';
 
 // Task priority enum
 export type TaskPriority = 'p0' | 'p1' | 'p2' | 'p3';
+
+export interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+}
+
+export interface TaskPeriodicity {
+  strategy: string; // "day", "week", "month", "year"
+  interval: number;
+  start_date: string;
+  end_rule: string; // "never", "date", "count"
+  end_date?: string;
+  end_count?: number;
+}
 
 // Task model
 export interface Task {
@@ -13,6 +28,8 @@ export interface Task {
   priority?: TaskPriority;
   tags?: string[];
   labels?: string[];
+  subtasks?: Subtask[];
+  periodicity?: TaskPeriodicity;
   order_index: number;
   estimate_min?: number;
   scheduled_start?: string;
@@ -48,9 +65,9 @@ export interface DayLog {
 export interface TodayDTO {
   // Kanban tasks grouped by status
   kanban: {
-    backlog: Task[];
     todo: Task[];
     doing: Task[];
+    verify: Task[];
     done: Task[];
   };
   // Timeline tasks for today
@@ -76,6 +93,8 @@ export interface CreateTaskInput {
   estimate_min?: number;
   tags?: string[];
   labels?: string[];
+  subtasks?: Subtask[];
+  periodicity?: TaskPeriodicity;
   scheduled_start?: string;
   scheduled_end?: string;
   note_path?: string;
@@ -90,6 +109,8 @@ export interface UpdateTaskInput {
   priority?: TaskPriority;
   tags?: string[];
   labels?: string[];
+  subtasks?: Subtask[];
+  periodicity?: TaskPeriodicity;
   due_date?: string | null;
   board_id?: string;
   order_index?: number;
