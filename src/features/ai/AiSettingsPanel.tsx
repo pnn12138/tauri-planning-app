@@ -17,7 +17,8 @@ export const AiSettingsPanel: React.FC = () => {
         activeAgentId,
         personas,
         loadPersonas,
-        setActiveAgent
+        setActiveAgent,
+        localConfig
     } = useAiStoreWithActions();
     const [provider, setProvider] = useState<'gemini' | 'openai' | 'ollama' | 'openrouter'>('gemini');
     const [baseUrl, setBaseUrl] = useState('');
@@ -59,11 +60,15 @@ export const AiSettingsPanel: React.FC = () => {
             setBaseUrl('https://openrouter.ai/api/v1');
             // If user switches to OpenRouter and key is empty, or matches known defaults, pre-fill it.
             // Note: In a real app we might not want to hardcode this, but per user request we are.
+            // If user switches to OpenRouter and key is empty, or matches known defaults, pre-fill it.
             if (!apiKey) {
-                setApiKey('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');
+                const localKey = localConfig?.openrouter?.apiKey;
+                // Prefer local config, fallback to default
+                setApiKey(localKey || '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');
             }
             if (!modelName || !modelName.includes('/')) {
-                setModelName('google/gemini-2.0-flash-lite-preview-02-05:free');
+                const localModel = localConfig?.openrouter?.model;
+                setModelName(localModel || 'google/gemini-2.0-flash-lite-preview-02-05:free');
             }
         }
     }, [provider]);

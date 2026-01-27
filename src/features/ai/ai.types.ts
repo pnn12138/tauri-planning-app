@@ -24,3 +24,18 @@ export interface ChatSession {
     updatedAt: number;
     taskId?: string; // Optional: Link to a specific task
 }
+
+export interface LocalAiConfig {
+    openrouter?: {
+        apiKey?: string;
+        model?: string;
+    };
+    openai?: {
+        apiKey?: string;
+        model?: string;
+    };
+    gemini?: {
+        apiKey?: string;
+        model?: string;
+    };
+}

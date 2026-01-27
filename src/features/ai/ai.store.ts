@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { AiSettings, ChatSession, ChatMessage } from './ai.types';
+import { AiSettings, ChatSession, ChatMessage, LocalAiConfig } from './ai.types';
 import { getAiSettings, saveAiSettings, chatWithAI } from './ai.api';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentPersona } from './personas/types';
@@ -22,6 +22,9 @@ interface AiState {
     // Agent Persona
     personas: AgentPersona[];
     activeAgentId: string;
+
+    // Local Config (runtime overrides)
+    localConfig: LocalAiConfig;
 }
 
 // Initial State
@@ -46,6 +49,7 @@ let aiState: AiState = {
     // Agent Defaults
     personas: [],
     activeAgentId: 'default',
+    localConfig: {},
 };
 
 const listeners = new Set<() => void>();
@@ -67,8 +71,17 @@ function setAiState(newState: Partial<AiState>) {
 export const loadSettings = async () => {
     setAiState({ isLoading: true, error: null });
     try {
-        const settings = await getAiSettings();
-        setAiState({ settings, isLoading: false });
+        // Parallel load settings and local config
+        const [settings, localConfigResponse] = await Promise.all([
+            getAiSettings(),
+            fetch('/ai-config.local.json').then(res => res.ok ? res.json() : {}).catch(() => ({}))
+        ]);
+
+        setAiState({
+            settings,
+            localConfig: localConfigResponse as LocalAiConfig,
+            isLoading: false
+        });
     } catch (error) {
         setAiState({ error: String(error), isLoading: false });
     }

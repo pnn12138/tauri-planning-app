@@ -1,0 +1,14 @@
+{
+    "openrouter": {
+        "apiKey": "sk-or-your-api-key-here",
+        "model": "google/gemini-2.0-flash-lite-preview-02-05:free"
+    },
+    "openai": {
+        "apiKey": "",
+        "model": "gpt-4"
+    },
+    "gemini": {
+        "apiKey": "",
+        "model": "gemini-pro"
+    }
+}
