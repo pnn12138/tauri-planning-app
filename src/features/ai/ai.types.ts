@@ -1,5 +1,5 @@
 export interface AiSettings {
-    provider: 'gemini' | 'openai' | 'ollama';
+    provider: 'gemini' | 'openai' | 'ollama' | 'openrouter';
     base_url: string;
     api_key: string;
     model_name: string;
@@ -22,4 +22,5 @@ export interface ChatSession {
     messages: ChatMessage[];
     createdAt: number;
     updatedAt: number;
+    taskId?: string; // Optional: Link to a specific task
 }

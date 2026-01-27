@@ -75,10 +75,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
             setQuery(e.target.value);
             setActiveIndex(0);
           }}
-          placeholder="Type a command..."
+          placeholder="输入命令..."
         />
         <div className="command-palette-list">
-          {filtered.length === 0 && <div className="command-palette-empty">No commands</div>}
+          {filtered.length === 0 && <div className="command-palette-empty">无命令</div>}
           {filtered.map((cmd, index) => (
             <button
               key={cmd.key}

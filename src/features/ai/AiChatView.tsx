@@ -1,39 +1,29 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { useAiStore, setChatMode } from './ai.store';
+import { useAiStore, setChatMode, abortGeneration } from './ai.store';
 import { sendMessage } from './ai.store';
+import ChatComposer from './components/ChatComposer';
 import './ai.css';
 
 export default function AiChatView() {
-    const { sessions, activeSessionId, isGenerating, error } = useAiStore();
+    const { sessions, activeSessionId, isGenerating, error, activeAgentId, personas } = useAiStore();
     const [inputValue, setInputValue] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLTextAreaElement>(null);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
+    const activeAgentName = personas.find(p => p.id === activeAgentId)?.name || 'AI Assistant';
 
     useEffect(() => {
         // Scroll to bottom when messages change
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [activeSession?.messages]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async () => {
         if (!inputValue.trim() || isGenerating) return;
 
         const message = inputValue.trim();
         setInputValue('');
 
         await sendMessage(message);
-
-        // Focus back on input
-        inputRef.current?.focus();
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit(e);
-        }
     };
 
     const handleSwitchToPanel = () => {
@@ -44,8 +34,8 @@ export default function AiChatView() {
         return (
             <main className="ai-chat-view">
                 <div className="ai-chat-empty">
-                    <h2>No active chat</h2>
-                    <p>Create a new chat session to get started</p>
+                    <h2>无活动对话</h2>
+                    <p>创建一个新对话以开始</p>
                 </div>
             </main>
         );
@@ -58,26 +48,26 @@ export default function AiChatView() {
                     <span className="ai-icon">🤖</span>
                 </div>
                 <div className="ai-chat-header-info">
-                    <h3 className="ai-chat-header-title">AI Assistant</h3>
+                    <h3 className="ai-chat-header-title">{activeAgentName}</h3>
                     <div className="ai-chat-header-status">
                         <span className="ai-status-indicator"></span>
-                        <span className="ai-status-text">Online</span>
+                        <span className="ai-status-text">在线</span>
                     </div>
                 </div>
                 <button
                     className="ai-header-action-btn"
                     onClick={handleSwitchToPanel}
-                    title="Switch to panel mode"
+                    title="切换到面板模式"
                 >
-                    ⬅️ panel
+                    ⬅️ 面板模式
                 </button>
             </div>
 
             <div className="ai-chat-messages">
                 {activeSession.messages.length === 0 && (
                     <div className="ai-chat-welcome">
-                        <h2>👋 Hello!</h2>
-                        <p>I'm your AI assistant. How can I help you today?</p>
+                        <h2>👋 你好！</h2>
+                        <p>我是你的 AI 助手。今天能为你做什么？</p>
                     </div>
                 )}
 
@@ -88,7 +78,7 @@ export default function AiChatView() {
                     >
                         <div className="ai-message-avatar">
                             {message.role === 'user' ? (
-                                <div className="ai-avatar-user">You</div>
+                                <div className="ai-avatar-user">你</div>
                             ) : (
                                 <div className="ai-avatar-assistant">🤖</div>
                             )}
@@ -125,27 +115,16 @@ export default function AiChatView() {
                 <div ref={messagesEndRef} />
             </div>
 
-            <div className="ai-chat-input-container">
-                <form onSubmit={handleSubmit} className="ai-chat-form">
-                    <textarea
-                        ref={inputRef}
-                        className="ai-chat-input"
-                        placeholder="Type your message..."
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        rows={1}
-                        disabled={isGenerating}
-                    />
-                    <button
-                        type="submit"
-                        className="ai-chat-send"
-                        disabled={!inputValue.trim() || isGenerating}
-                    >
-                        {isGenerating ? '⏳' : '📤'}
-                    </button>
-                </form>
-            </div>
-        </main>
+            <ChatComposer
+                value={inputValue}
+                onChange={setInputValue}
+                onSend={handleSubmit}
+                disabled={isGenerating}
+                placeholder="输入消息..."
+                mode="view"
+                isGenerating={isGenerating}
+                onStop={abortGeneration}
+            />
+        </main >
     );
 }

@@ -42,6 +42,57 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
     end_rule: 'never',
   });
   const [periodicityTime, setPeriodicityTime] = useState<string>('09:00');
+  const [periodicityDuration, setPeriodicityDuration] = useState<number>(30);
+
+  // Auto-calculate End Date from Count
+  useEffect(() => {
+    if (periodicity.end_rule === 'count' && periodicity.end_count && periodicity.start_date) {
+      const start = new Date(periodicity.start_date);
+      const count = periodicity.end_count;
+      const interval = periodicity.interval;
+
+      let end = new Date(start);
+      if (periodicity.strategy === 'day') {
+        end.setDate(start.getDate() + (count * interval));
+      } else if (periodicity.strategy === 'week') {
+        end.setDate(start.getDate() + (count * interval * 7));
+      } else if (periodicity.strategy === 'month') {
+        end.setMonth(start.getMonth() + (count * interval));
+      } else if (periodicity.strategy === 'year') {
+        end.setFullYear(start.getFullYear() + (count * interval));
+      }
+
+      setPeriodicity(p => ({ ...p, end_date: end.toLocaleDateString('en-CA') }));
+    }
+  }, [periodicity.end_count, periodicity.interval, periodicity.strategy, periodicity.start_date, periodicity.end_rule]);
+
+  // Auto-calculate Count from End Date
+  useEffect(() => {
+    if (periodicity.end_rule === 'date' && periodicity.end_date && periodicity.start_date) {
+      const start = new Date(periodicity.start_date);
+      const end = new Date(periodicity.end_date);
+      const interval = periodicity.interval;
+
+      if (end > start && interval > 0) {
+        let count = 0;
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (periodicity.strategy === 'day') {
+          count = Math.floor(diffDays / interval);
+        } else if (periodicity.strategy === 'week') {
+          count = Math.floor(diffDays / (7 * interval));
+        } else if (periodicity.strategy === 'month') {
+          // Approximate month diff
+          count = Math.floor((end.getMonth() - start.getMonth() + (12 * (end.getFullYear() - start.getFullYear()))) / interval);
+        } else if (periodicity.strategy === 'year') {
+          count = Math.floor((end.getFullYear() - start.getFullYear()) / interval);
+        }
+
+        setPeriodicity(p => ({ ...p, end_count: count > 0 ? count : 1 }));
+      }
+    }
+  }, [periodicity.end_date, periodicity.interval, periodicity.strategy, periodicity.start_date, periodicity.end_rule]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +111,7 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
       setScheduledTimeStart('');
       setScheduledTimeEnd('');
       setPeriodicityTime('09:00');
+      setPeriodicityDuration(30);
       setError('');
     }
   }, [open]);
@@ -119,6 +171,7 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
           ...periodicity,
           start_date: periodicityTime ? `${periodicity.start_date}T${periodicityTime}:00` : `${periodicity.start_date}T00:00:00`
         } : undefined,
+        estimate_min: isRecurring ? periodicityDuration : undefined,
       };
 
       // Handle Schedule - defaults to Today or user selected
@@ -345,10 +398,10 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
                         value={periodicity.strategy}
                         onChange={e => setPeriodicity({ ...periodicity, strategy: e.target.value })}
                       >
-                        <option value="day">天 (Days)</option>
-                        <option value="week">周 (Weeks)</option>
-                        <option value="month">月 (Months)</option>
-                        <option value="year">年 (Years)</option>
+                        <option value="day">天</option>
+                        <option value="week">周</option>
+                        <option value="month">月</option>
+                        <option value="year">年</option>
                       </select>
                     </div>
                   </div>
@@ -369,6 +422,21 @@ const TaskCreateModal: React.FC<TaskCreateModalProps> = ({
                         value={periodicityTime}
                         onChange={e => setPeriodicityTime(e.target.value)}
                       />
+                    </div>
+                  </div>
+
+                  {/* Duration */}
+                  <div className="periodicity-row">
+                    <span className="periodicity-label">持续时长</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        className="input-sm w-20 text-center"
+                        value={periodicityDuration}
+                        onChange={e => setPeriodicityDuration(parseInt(e.target.value) || 30)}
+                      />
+                      <span className="text-sm text-gray-600">分钟</span>
                     </div>
                   </div>
 

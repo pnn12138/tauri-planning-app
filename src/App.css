@@ -230,9 +230,18 @@ textarea {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
 }
 
 .top-bar {

@@ -20,7 +20,7 @@ export const SmartAddModal: React.FC = () => {
             const tasks = await smartCapture(input);
             setPreviewTasks(tasks);
         } catch (err) {
-            setError('Failed to process text. Please check AI settings and try again.');
+            setError('处理文本失败。请检查 AI 设置并重试。');
             console.error(err);
         } finally {
             setIsProcessing(false);
@@ -37,7 +37,7 @@ export const SmartAddModal: React.FC = () => {
             setInput('');
             setPreviewTasks([]);
         } catch (err) {
-            setError('Failed to create tasks.');
+            setError('创建任务失败。');
             console.error(err);
         } finally {
             setIsProcessing(false);
@@ -52,7 +52,7 @@ export const SmartAddModal: React.FC = () => {
                 <div className="ai-modal-header">
                     <div className="ai-modal-title">
                         <span className="material-symbols-outlined">auto_fix_high</span>
-                        Smart Add Tasks
+                        智能添加任务
                     </div>
                     <button className="ai-modal-close-btn" onClick={() => setSmartAddOpen(false)}>
                         <span className="material-symbols-outlined">close</span>
@@ -60,12 +60,12 @@ export const SmartAddModal: React.FC = () => {
                 </div>
                 <div className="ai-modal-body">
                     <div className="ai-field-group">
-                        <label className="ai-label">Describe your tasks naturally...</label>
+                        <label className="ai-label">用自然语言描述您的任务...</label>
                         <textarea
                             className="ai-input ai-textarea"
                             value={input}
                             onChange={e => setInput(e.target.value)}
-                            placeholder="e.g. Schedule a meeting with John next Monday at 2pm, and remind me to buy milk tomorrow."
+                            placeholder="例如：下周一下午2点和John开会，明天提醒我买牛奶。"
                             autoFocus
                         />
                     </div>
@@ -78,16 +78,16 @@ export const SmartAddModal: React.FC = () => {
 
                     {previewTasks.length > 0 && (
                         <div className="ai-preview-list">
-                            <h4 className="ai-label">Preview ({previewTasks.length} tasks)</h4>
+                            <h4 className="ai-label">预览 ({previewTasks.length} 个任务)</h4>
                             {previewTasks.map((task, idx) => (
                                 <div key={idx} className="ai-preview-item">
                                     <div className="ai-preview-content">
                                         <div className="ai-preview-title">{task.title}</div>
                                         {task.description && <div className="text-sm text-gray-500">{task.description}</div>}
                                         <div className="ai-preview-meta">
-                                            {task.due_date && <span className="ai-tag">Due: {task.due_date}</span>}
-                                            {task.priority && <span className="ai-tag">Priority: {String(task.priority)}</span>}
-                                            {task.estimate_min && <span className="ai-tag">{task.estimate_min} min</span>}
+                                            {task.due_date && <span className="ai-tag">截止: {task.due_date}</span>}
+                                            {task.priority && <span className="ai-tag">优先级: {String(task.priority)}</span>}
+                                            {task.estimate_min && <span className="ai-tag">{task.estimate_min} 分钟</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -98,15 +98,15 @@ export const SmartAddModal: React.FC = () => {
                 <div className="ai-modal-footer">
                     {previewTasks.length === 0 ? (
                         <button className="ai-btn ai-btn-primary" onClick={handleProcess} disabled={isProcessing || !input.trim()}>
-                            {isProcessing ? 'Processing...' : 'Analyze Text'}
+                            {isProcessing ? '处理中...' : '分析文本'}
                         </button>
                     ) : (
                         <>
                             <button className="ai-btn ai-btn-secondary" onClick={() => setPreviewTasks([])}>
-                                Back to Edit
+                                返回编辑
                             </button>
                             <button className="ai-btn ai-btn-primary" onClick={handleConfirm} disabled={isProcessing}>
-                                {isProcessing ? 'Creating...' : `Create ${previewTasks.length} Tasks`}
+                                {isProcessing ? '创建中...' : `创建 ${previewTasks.length} 个任务`}
                             </button>
                         </>
                     )}

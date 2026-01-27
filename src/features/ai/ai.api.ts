@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AiSettings, ChatMessage } from "./ai.types";
 import { CreateTaskInput } from "../../shared/types/planning";
 import { ApiResponse } from "../../shared/types/api";
+import { aiService } from "./ai.service";
 
 async function invokeApi<T>(command: string, args?: Record<string, unknown>) {
     const response = await invoke<ApiResponse<T>>(command, args);
@@ -22,51 +23,18 @@ export async function smartCapture(text: string): Promise<CreateTaskInput[]> {
 }
 
 /**
- * Chat with Google Gemini API
+ * Chat with AI using LangChain Service
  * @param messages - Array of chat messages (conversation history)
- * @param settings - AI settings containing API key and model info
+ * @param settings - AI settings containing provider, API key and model info
  * @returns AI response text
  */
-export async function chatWithGemini(
+export async function chatWithAI(
     messages: ChatMessage[],
-    settings: AiSettings
+    settings: AiSettings,
+    activeAgentId?: string,
+    signal?: AbortSignal,
+    taskContext?: string
 ): Promise<string> {
-    const apiKey = settings.api_key;
-    const modelName = settings.model_name || 'gemini-pro';
-
-    // Convert our message format to Gemini's expected format
-    const contents = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-    }));
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            contents,
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 2048,
-            }
-        })
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Gemini API error: ${response.statusText} - ${JSON.stringify(errorData)}`);
-    }
-
-    const data = await response.json();
-
-    // Extract the response text from Gemini's response format
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
-    }
-
-    throw new Error('Unexpected response format from Gemini API');
+    return aiService.generateResponse(messages, settings, activeAgentId, signal, taskContext);
 }
+

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { useAiStore, setChatMode, toggleChat } from './ai.store';
+import { useAiStore, setChatMode, toggleChat, createSession, abortGeneration } from './ai.store';
 import { sendMessage, setSettingsOpen } from './ai.store';
+import ChatComposer from './components/ChatComposer';
 import './ai.css';
 
 /**
@@ -8,33 +9,24 @@ import './ai.css';
  * This is the "panel mode" version that doesn't take over the whole screen
  */
 export default function AiChatPanel() {
-    const { sessions, activeSessionId, isGenerating, error, isChatOpen } = useAiStore();
+    const { sessions, activeSessionId, isGenerating, error, isChatOpen, activeAgentId, personas } = useAiStore();
     const [inputValue, setInputValue] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLTextAreaElement>(null);
 
     const activeSession = sessions.find(s => s.id === activeSessionId);
+    const activeAgentName = personas.find(p => p.id === activeAgentId)?.name || 'AI 智能助手';
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [activeSession?.messages]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async () => {
         if (!inputValue.trim() || isGenerating) return;
 
         const message = inputValue.trim();
         setInputValue('');
 
         await sendMessage(message);
-        inputRef.current?.focus();
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit(e);
-        }
     };
 
     const handleExpandToFullscreen = () => {
@@ -43,6 +35,10 @@ export default function AiChatPanel() {
 
     const handleClose = () => {
         toggleChat();
+    };
+
+    const handleNewChat = () => {
+        createSession();
     };
 
     if (!isChatOpen) return null;
@@ -54,7 +50,7 @@ export default function AiChatPanel() {
                 <div className="ai-panel-header-left">
                     <div className="ai-panel-icon">🤖</div>
                     <div>
-                        <h3 className="ai-panel-title">AI 智能助手</h3>
+                        <h3 className="ai-panel-title">{activeAgentName}</h3>
                         <div className="ai-panel-status">
                             <span className="ai-status-dot"></span>
                             <span>在线中</span>
@@ -64,22 +60,29 @@ export default function AiChatPanel() {
                 <div className="ai-panel-header-actions">
                     <button
                         className="ai-panel-action-btn"
+                        onClick={handleNewChat}
+                        title="新建对话"
+                    >
+                        ➕
+                    </button>
+                    <button
+                        className="ai-panel-action-btn"
                         onClick={() => setSettingsOpen(true)}
-                        title="Settings"
+                        title="设置"
                     >
                         ⚙️
                     </button>
                     <button
                         className="ai-panel-action-btn"
                         onClick={handleExpandToFullscreen}
-                        title="Expand to fullscreen"
+                        title="全屏"
                     >
                         ⛶
                     </button>
                     <button
                         className="ai-panel-action-btn"
                         onClick={handleClose}
-                        title="Close"
+                        title="关闭"
                     >
                         ×
                     </button>
@@ -107,7 +110,7 @@ export default function AiChatPanel() {
                                     {message.content}
                                 </div>
                                 {message.role === 'user' && (
-                                    <div className="ai-panel-message-avatar-user">You</div>
+                                    <div className="ai-panel-message-avatar-user">你</div>
                                 )}
                             </div>
                         ))}
@@ -135,27 +138,16 @@ export default function AiChatPanel() {
             </div>
 
             {/* Input */}
-            <div className="ai-panel-input-container">
-                <form onSubmit={handleSubmit} className="ai-panel-form">
-                    <textarea
-                        ref={inputRef}
-                        className="ai-panel-input"
-                        placeholder="发送消息给 AI..."
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        rows={1}
-                        disabled={isGenerating}
-                    />
-                    <button
-                        type="submit"
-                        className="ai-panel-send"
-                        disabled={!inputValue.trim() || isGenerating}
-                    >
-                        {isGenerating ? '⏳' : '📤'}
-                    </button>
-                </form>
-            </div>
+            <ChatComposer
+                value={inputValue}
+                onChange={setInputValue}
+                onSend={handleSubmit}
+                disabled={isGenerating}
+                placeholder="发送消息给 AI..."
+                mode="panel"
+                isGenerating={isGenerating}
+                onStop={abortGeneration}
+            />
         </aside>
     );
 }

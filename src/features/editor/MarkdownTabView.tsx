@@ -119,7 +119,7 @@ export default function MarkdownTabView(props: { tabId: string }) {
   }, [handleSave]);
 
   if (!tab || tab.type !== "markdown") {
-    return <div className="placeholder">No markdown tab selected.</div>;
+    return <div className="placeholder">未选择 Markdown 标签。</div>;
   }
 
   const content = editor?.content ?? "";
@@ -127,7 +127,7 @@ export default function MarkdownTabView(props: { tabId: string }) {
     <div className="main-pane">
       <section className="editor-pane">
         <div className="pane-header">
-          <div className="title">Editor</div>
+          <div className="title">编辑器</div>
           <div className="meta">{tab.filePath}</div>
         </div>
         <div className="pane-body">
@@ -144,8 +144,8 @@ export default function MarkdownTabView(props: { tabId: string }) {
 
       <section className="preview-pane">
         <div className="pane-header">
-          <div className="title">Preview</div>
-          <div className="meta">Live markdown render</div>
+          <div className="title">预览</div>
+          <div className="meta">实时 Markdown 渲染</div>
         </div>
         <PreviewPane tabId={props.tabId} content={content} />
       </section>

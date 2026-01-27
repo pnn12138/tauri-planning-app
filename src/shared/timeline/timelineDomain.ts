@@ -215,7 +215,11 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
 
   // First, filter tasks to only include those for the specific date
   const tasksForDate = tasks.filter(task => {
-    const taskDateStr = baseDate.toISOString().split('T')[0];
+    // Construct local YYYY-MM-DD from baseDate
+    const year = baseDate.getFullYear();
+    const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+    const day = String(baseDate.getDate()).padStart(2, '0');
+    const taskDateStr = `${year}-${month}-${day}`;
 
     // 1. Check scheduled_start (exact match)
     if (task.scheduled_start) {
@@ -304,6 +308,9 @@ const buildDayTimelineModel = (tasks: Task[], config: TimelineConfig, baseDate: 
       // Prefer time from periodicity start_date if available (T-format)
       if (task.periodicity.start_date.includes('T')) {
         timeSource = task.periodicity.start_date;
+      } else if (!timeSource) {
+        // Fallback for date-only start_date: use 00:00
+        timeSource = `${task.periodicity.start_date}T00:00:00`;
       }
 
       if (timeSource) {

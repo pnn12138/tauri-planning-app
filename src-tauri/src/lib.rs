@@ -1,6 +1,7 @@
 mod bootstrap;
 mod commands;
 mod domain;
+mod features;
 mod ipc;
 mod paths;
 mod repo;
@@ -24,6 +25,10 @@ pub fn run() {
             let state = bootstrap::init_vault_state(app)?;
             app.manage(state);
             app.manage(bootstrap::init_app_state());
+            app.manage(
+                features::ai::embedding::EmbeddingEngine::new()
+                    .expect("failed to init embedding engine"),
+            );
             Ok(())
         })
         .plugin(webview_bridge::init_webview_bridge())
@@ -42,6 +47,7 @@ pub fn run() {
             commands::plugins::plugins_set_enabled,
             commands::plugins::vault_read_text,
             commands::plugins::vault_write_text,
+            commands::plugins::vault_list_files,
             commands::planning_cmd::planning_list_today,
             commands::planning_cmd::planning_create_task,
             commands::planning_cmd::planning_update_task,
@@ -57,7 +63,9 @@ pub fn run() {
             commands::planning_cmd::planning_delete_task,
             commands::planning_cmd::planning_ai_smart_capture,
             commands::planning_cmd::planning_get_ai_settings,
-            commands::planning_cmd::planning_save_ai_settings
+            commands::planning_cmd::planning_save_ai_settings,
+            commands::ai_cmd::ai_generate_embeddings,
+            commands::ai_cmd::ai_search_similar
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

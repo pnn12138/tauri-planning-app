@@ -26,6 +26,8 @@ pub struct PluginsSettings {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AiSettings {
+    #[serde(default = "default_ai_provider")]
+    pub provider: String, // "gemini", "openai", "ollama"
     #[serde(default = "default_ai_base_url")]
     pub base_url: String, // e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
     #[serde(default)]
@@ -37,11 +39,16 @@ pub struct AiSettings {
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
+            provider: default_ai_provider(),
             base_url: default_ai_base_url(),
             api_key: String::new(),
             model_name: default_ai_model(),
         }
     }
+}
+
+fn default_ai_provider() -> String {
+    "gemini".to_string()
 }
 
 fn default_ai_base_url() -> String {

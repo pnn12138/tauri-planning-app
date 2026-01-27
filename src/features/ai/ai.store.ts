@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { AiSettings, ChatSession, ChatMessage } from './ai.types';
-import { getAiSettings, saveAiSettings, chatWithGemini } from './ai.api';
+import { getAiSettings, saveAiSettings, chatWithAI } from './ai.api';
 import { v4 as uuidv4 } from 'uuid';
+import { AgentPersona } from './personas/types';
+import { PersonaRegistry } from './personas/registry';
+import { getTaskById } from '../planning/planning.store';
 
 interface AiState {
     settings: AiSettings;
@@ -14,6 +17,11 @@ interface AiState {
     isGenerating: boolean;
     isLoading: boolean;
     error: string | null;
+    abortController: AbortController | null;
+
+    // Agent Persona
+    personas: AgentPersona[];
+    activeAgentId: string;
 }
 
 // Initial State
@@ -33,6 +41,11 @@ let aiState: AiState = {
     isGenerating: false,
     isLoading: false,
     error: null,
+    abortController: null,
+
+    // Agent Defaults
+    personas: [],
+    activeAgentId: 'default',
 };
 
 const listeners = new Set<() => void>();
@@ -90,13 +103,14 @@ export const setChatMode = (mode: 'fullscreen' | 'panel') => {
 };
 
 
-export const createSession = (): string => {
+export const createSession = (props?: Partial<ChatSession>): string => {
     const newSession: ChatSession = {
         id: uuidv4(),
-        title: 'New Chat',
+        title: props?.title || 'New Chat',
         messages: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        ...props
     };
 
     setAiState({
@@ -105,6 +119,37 @@ export const createSession = (): string => {
     });
 
     return newSession.id;
+};
+
+export const startTaskSession = (taskId: string) => {
+    // 1. Check if a session for this task already exists
+    const existingSession = aiState.sessions.find(s => s.taskId === taskId);
+
+    if (existingSession) {
+        setAiState({
+            activeSessionId: existingSession.id,
+            isChatOpen: true,
+            chatMode: 'panel',
+            activeAgentId: 'task_agent'
+        });
+        return;
+    }
+
+    // 2. Create new session for this task
+    const task = getTaskById(taskId);
+    const taskTitle = task ? `Task: ${task.title}` : 'Task Workspace';
+
+    createSession({
+        title: taskTitle,
+        taskId: taskId,
+        // Optional: Pre-fill with a system-like message or just rely on Task Agent persona
+    });
+
+    setAiState({
+        isChatOpen: true,
+        chatMode: 'panel',
+        activeAgentId: 'task_agent'
+    });
 };
 
 export const setActiveSession = (id: string) => {
@@ -126,8 +171,29 @@ export const deleteSession = (id: string) => {
     });
 };
 
-export const sendMessage = async (content: string) => {
-    if (!aiState.activeSessionId) return;
+export const loadPersonas = async () => {
+    try {
+        const personas = await PersonaRegistry.getAggregatedPersonas();
+        setAiState({ personas });
+    } catch (error) {
+        console.error("Failed to load personas:", error);
+    }
+};
+
+export const setActiveAgent = (agentId: string) => {
+    setAiState({ activeAgentId: agentId });
+};
+
+export const abortGeneration = () => {
+    if (aiState.abortController) {
+        aiState.abortController.abort();
+        setAiState({ isGenerating: false, abortController: null, isLoading: false });
+    }
+};
+
+export const sendMessage = async (content: string, targetSessionId?: string) => {
+    const sessionId = targetSessionId || aiState.activeSessionId;
+    if (!sessionId) return;
 
     const userMessage: ChatMessage = {
         id: uuidv4(),
@@ -138,7 +204,7 @@ export const sendMessage = async (content: string) => {
 
     // Add user message to active session
     const updatedSessions = aiState.sessions.map(session => {
-        if (session.id === aiState.activeSessionId) {
+        if (session.id === sessionId) {
             return {
                 ...session,
                 messages: [...session.messages, userMessage],
@@ -152,15 +218,36 @@ export const sendMessage = async (content: string) => {
         return session;
     });
 
-    setAiState({ sessions: updatedSessions, isGenerating: true, error: null });
+    const controller = new AbortController();
+    setAiState({
+        sessions: updatedSessions,
+        isGenerating: true,
+        error: null,
+        abortController: controller
+    });
 
     try {
         // Get current session's messages for context
-        const currentSession = updatedSessions.find(s => s.id === aiState.activeSessionId);
+        const currentSession = updatedSessions.find(s => s.id === sessionId);
         if (!currentSession) throw new Error('Session not found');
 
-        // Call Gemini API
-        const responseText = await chatWithGemini(currentSession.messages, aiState.settings);
+        // Prepare Task Context if applicable
+        let taskContext = undefined;
+        if (currentSession.taskId) {
+            const task = getTaskById(currentSession.taskId);
+            if (task) {
+                taskContext = JSON.stringify(task, null, 2);
+            }
+        }
+
+        // Call AI API
+        const responseText = await chatWithAI(
+            currentSession.messages,
+            aiState.settings,
+            aiState.activeAgentId,
+            controller.signal,
+            taskContext
+        );
 
         const assistantMessage: ChatMessage = {
             id: uuidv4(),
@@ -171,7 +258,7 @@ export const sendMessage = async (content: string) => {
 
         // Add assistant message
         const finalSessions = aiState.sessions.map(session => {
-            if (session.id === aiState.activeSessionId) {
+            if (session.id === sessionId) {
                 return {
                     ...session,
                     messages: [...session.messages, assistantMessage],
@@ -181,11 +268,19 @@ export const sendMessage = async (content: string) => {
             return session;
         });
 
-        setAiState({ sessions: finalSessions, isGenerating: false });
-    } catch (error) {
+        setAiState({ sessions: finalSessions, isGenerating: false, abortController: null });
+    } catch (error: any) {
+        // Ignore abort errors
+        if (error.name === 'AbortError' || error.message === 'Aborted') {
+            console.log('AI generation aborted');
+            setAiState({ isGenerating: false, abortController: null });
+            return;
+        }
+
         setAiState({
             error: `Failed to get AI response: ${String(error)}`,
-            isGenerating: false
+            isGenerating: false,
+            abortController: null
         });
     }
 };
@@ -210,5 +305,9 @@ export function useAiStoreWithActions() {
         updateSettings,
         setSettingsOpen,
         setSmartAddOpen,
+        setActiveAgent,
+        loadPersonas,
+        abortGeneration,
+        startTaskSession,
     };
 }

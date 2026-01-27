@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+﻿import { useEffect, useRef, useState, useMemo } from 'react';
 import { usePlanningStore, loadTodayData, markTaskDone, reopenTask, updateTask, startTask, stopTask, updateKanban, setIsDragging, reorderTasks, updateUIState, setCurrentVaultId, loadUIState, saveSnapshot, rollback, getTaskById, deleteTask, createTask } from './features/planning/planning.store';
 import { planningOpenTaskNote } from './features/planning/planning.api';
 import TaskCreateModal from './features/task-create/TaskCreateModal';
-import { AiSettingsModal } from './features/ai/AiSettingsModal';
 import { SmartAddModal } from './features/ai/SmartAddModal';
-import { useAiStore } from './features/ai/ai.store';
+import { useAiStore, startTaskSession } from './features/ai/ai.store';
 import type { Task, Subtask, TaskPeriodicity, TaskPriority } from './shared/types/planning';
 import { v4 as uuidv4 } from 'uuid';
 import './features/task-create/taskCreateModal.css';
 import { buildTimelineModel, TimelineConfig, FreeBlock, BusyBlock, isWeekTimeline, isDayTimeline } from './shared/timeline/timelineDomain';
+import { openTaskTab } from './entities/tab/tab.store';
 
 // Generate vault_id from vaultRoot path (using simple hash for MVP)
 function generateVaultId(vaultRoot: string | null): string {
@@ -66,7 +66,7 @@ type HomeProps = {
 const getCurrentDate = (dateString?: string) => {
   const now = dateString ? new Date(dateString) : new Date();
   const months = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
-  const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
   // Also return YYYY-MM-DD format for API calls
   const year = now.getFullYear();
@@ -166,27 +166,22 @@ const throttle = <T extends (...args: any[]) => any>(func: T, limit: number): ((
   };
 };
 
-function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
+const Home: React.FC<HomeProps> = ({ hasVault, onSelectVault, vaultRoot }) => {
   const [currentTime, setCurrentTime] = useState<string>(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
 
-  // 当前选择的日期，默认为今天
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(getCurrentDate().yyyymmdd);
 
-  // 根据selectedDate获取当前日期信息
+  // Get current date info from selectedDate
   const { month, day, weekday, yyyymmdd } = getCurrentDate(selectedDate);
 
-  // 视图模式：日视图/周视图
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  // 新建任务相关状态
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // 任务状态切换相关状态
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
 
-  // 任务编辑模态框状态
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -213,6 +208,63 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [editPeriodicityTime, setEditPeriodicityTime] = useState<string>('09:00');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
+  // --- Edit Modal Sync Logic ---
+
+  // 1. Sync End Date <-> Due Date
+  // When periodicity end date changes, update due date
+  useEffect(() => {
+    if (isEditRecurring && editPeriodicity.end_rule === 'date' && editPeriodicity.end_date) {
+      if (editPeriodicity.end_date !== editDueDate) {
+        setEditDueDate(editPeriodicity.end_date);
+      }
+    }
+  }, [editPeriodicity.end_date, editPeriodicity.end_rule, isEditRecurring]);
+
+  // When due date changes, if it matches end rule, update periodicity end date
+  useEffect(() => {
+    if (isEditRecurring && editPeriodicity.end_rule === 'date' && editDueDate) {
+      if (editDueDate !== editPeriodicity.end_date) {
+        setEditPeriodicity(p => ({ ...p, end_date: editDueDate }));
+      }
+    }
+  }, [editDueDate, isEditRecurring, editPeriodicity.end_rule]);
+
+
+  // 2. Count -> End Date (Due Date) Calculation
+  useEffect(() => {
+    if (isEditRecurring && editPeriodicity.end_rule === 'count' && editPeriodicity.end_count) {
+      // Use Scheduled Start as base if available, else Periodicity Start
+      const baseDateStr = editScheduledStart ? editScheduledStart.split('T')[0] : editPeriodicity.start_date;
+
+      if (!baseDateStr) {
+        // user requested error if no start date, but here we might just not calculate
+        return;
+      }
+
+      const start = new Date(baseDateStr);
+      const count = editPeriodicity.end_count;
+      const interval = editPeriodicity.interval;
+
+      let end = new Date(start);
+      if (editPeriodicity.strategy === 'day') {
+        end.setDate(start.getDate() + (count * interval));
+      } else if (editPeriodicity.strategy === 'week') {
+        end.setDate(start.getDate() + (count * interval * 7));
+      } else if (editPeriodicity.strategy === 'month') {
+        end.setMonth(start.getMonth() + (count * interval));
+      } else if (editPeriodicity.strategy === 'year') {
+        end.setFullYear(start.getFullYear() + (count * interval));
+      }
+
+      const endDateStr = end.toLocaleDateString('en-CA');
+
+      // Update both
+      setEditPeriodicity(p => ({ ...p, end_date: endDateStr }));
+      setEditDueDate(endDateStr);
+    }
+  }, [editPeriodicity.end_count, editPeriodicity.interval, editPeriodicity.strategy, editPeriodicity.end_rule, editPeriodicity.start_date, editScheduledStart, isEditRecurring]);
+
+
   // Tags editor related state
   const [isTagsEditorOpen, setIsTagsEditorOpen] = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
@@ -227,7 +279,6 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [scheduleEditorScheduledEnd, setScheduleEditorScheduledEnd] = useState<string>('');
   const [scheduleEditorError, setScheduleEditorError] = useState<string>('');
 
-  // 拖拽状态管理
   const [isDragging, setIsDragging] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [draggingOverColumn, setDraggingOverColumn] = useState<string | null>(null);
@@ -242,29 +293,26 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const [currentVerifyIndex, setCurrentVerifyIndex] = useState(0);
   const [currentDoneIndex, setCurrentDoneIndex] = useState(0);
 
-  // 拖拽红色横线状态管理
   const [showDragIndicator, setShowDragIndicator] = useState(false);
-  const dragIndicatorPositionRef = useRef<number>(0); // 百分比位置
-  const dragIndicatorTimeRef = useRef<string>(''); // 显示时间
-  const dragIndicatorTimeStampRef = useRef<Date | null>(null); // 时间戳
+  const dragIndicatorPositionRef = useRef<number>(0);
+  const dragIndicatorTimeRef = useRef<string>('');
+  const dragIndicatorTimeStampRef = useRef<Date | null>(null);
   const mousePositionRef = useRef<{ x: number; y: number } | null>(null);
 
-  // 添加鼠标移动事件监听器，用于跟踪拖拽过程中的鼠标位置
+  // Add mouse move listener to track mouse position during drag
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       mousePositionRef.current = { x: event.clientX, y: event.clientY };
     };
 
-    // 直接添加事件监听器，不依赖isDragging状态
-    // 这样可以确保在拖拽开始时就能跟踪鼠标位置
+    // Directly add event listener, not depending on isDragging    // 杩欐牱鍙互纭繚鍦ㄦ嫋鎷藉紑濮嬫椂灏辫兘璺熻釜榧犳爣浣嶇疆
     window.addEventListener('mousemove', handleMouseMove);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
     };
-  }, []); // 只在组件挂载时添加一次
-
-  // 时间轴配置
+  }, []); // Only add once on mount
+  // Timeline Configuration
   const timelineConfig: TimelineConfig = {
     dayStart: '08:00',
     dayEnd: '20:00',
@@ -274,22 +322,22 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
   const timelineContentRef = useRef<HTMLDivElement>(null);
 
-  // 快速排期相关状态
+  // Quick Schedule State
   const [isQuickScheduleOpen, setIsQuickScheduleOpen] = useState(false);
   const [quickScheduleStartTime, setQuickScheduleStartTime] = useState<string>('');
   const [quickScheduleTitle, setQuickScheduleTitle] = useState<string>('');
   const [quickScheduleDuration, setQuickScheduleDuration] = useState<number>(30);
 
-  // 获取时间轴数据
+  // Get today's data
   const todayData = usePlanningStore((state) => state.todayData);
-  // 在周视图中，我们需要所有任务来构建完整的周时间轴
+  // Determine tasks to show in timeline
   const timelineTasks = useMemo(() => {
     if (!todayData) return [];
     if (viewMode === 'day') {
-      // 日视图只需要当天的时间轴任务
+      // Day view needs all timeline tasks
       return todayData.timeline;
     } else {
-      // 周视图需要所有任务（包括看板和时间轴上的任务）
+      // Week view needs all tasks
       return [
         ...todayData.timeline,
         ...todayData.kanban.todo,
@@ -300,12 +348,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     }
   }, [todayData, viewMode]);
 
-  // 构建时间轴模型
+  // Build timeline model
   const timelineModel = useMemo(() => {
     return buildTimelineModel(timelineTasks, timelineConfig, new Date(selectedDate), viewMode);
   }, [timelineTasks, timelineConfig, selectedDate, viewMode]);
 
-  // 更新当前时间
+  // Update current time
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
@@ -314,7 +362,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     return () => clearInterval(timer);
   }, []);
 
-  // 日期导航函数
+  // Day Navigation锟斤拷
   const handlePrevDay = async () => {
     const prevDate = new Date(selectedDate);
     prevDate.setDate(prevDate.getDate() - 1);
@@ -331,7 +379,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     await loadTodayData(newDate);
   };
 
-  // 周导航函数
+  // Week Navigation锟斤拷
   const handlePrevWeek = async () => {
     const prevWeek = new Date(selectedDate);
     prevWeek.setDate(prevWeek.getDate() - 7);
@@ -348,9 +396,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     await loadTodayData(newDate);
   };
 
-  // 跳转到今天
+  // Jump to Today
   const handleToday = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getCurrentDate().yyyymmdd;
     setSelectedDate(today);
     await loadTodayData(today);
   };
@@ -362,19 +410,19 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
   const getColumnIdFromPoint = (x: number, y: number): string | null => {
     const elements = document.elementsFromPoint(x, y);
     for (const element of elements) {
-      // 检查是否是看板列 (日视图)
+      // Check if it is a kanban column
       const column = element.closest?.('.kanban-column') as HTMLElement | null;
       if (column?.id) {
         return column.id;
       }
 
-      // 检查是否是状态轮播 (周视图)
+      // Check if it is a status carousel
       const carousel = element.closest?.('.status-carousel') as HTMLElement | null;
       if (carousel?.id) {
         return carousel.id;
       }
 
-      // 检查是否是时间轴区域
+      // Check if it is a timeline container
       const timelineContainer = element.closest?.('.timeline-container') as HTMLElement | null;
       if (timelineContainer?.id) {
         return timelineContainer.id;
@@ -383,7 +431,6 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     return null;
   };
 
-  // 从store获取UI状态
   const uiState = usePlanningStore(state => state.uiState);
 
   // Set vault_id when vaultRoot changes
@@ -421,13 +468,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     data: { columnId: 'done' },
   });
 
-  // 时间轴可拖拽区域设置
+  // Timeline Droppable Setup
   const timelineDroppable = useDroppable({
     id: 'timeline:main',
     data: { type: 'timeline' },
   });
 
-  // 拖拽开始处理
   const handleDragStart = (event: DragStartEvent) => {
     setIsDragging(true);
     setDraggingTaskId(event.active.id as string);
@@ -441,7 +487,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     }
   };
 
-  // 拖拽过程处理（使用节流优化性能，添加拖拽目标检测）
+  // Handle drag move (throttled, with target detection)
   const handleDragMove = throttle((event: DragMoveEvent) => {
     const { over } = event;
     const activatorEvent = event.activatorEvent as PointerEvent | undefined;
@@ -489,51 +535,51 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       lastOverIdRef.current = event.over.id as string;
     }
 
-    // 处理拖拽到时间轴区域的逻辑
+    // Timeline drag over logic
     const isOverTimeline = event.over && typeof event.over.id === 'string' && event.over.id.startsWith('timeline:');
 
     if (isOverTimeline) {
       setShowDragIndicator(true);
 
-      // 获取鼠标位置和时间轴容器的位置
+      // Get mouse position relative to timeline content
       if (timelineContentRef.current && mousePositionRef.current) {
         const rect = timelineContentRef.current.getBoundingClientRect();
         const timelineHeight = rect.height;
         const mouseY = mousePositionRef.current.y - rect.top;
         const mouseX = mousePositionRef.current.x - rect.left;
 
-        // 计算位置百分比
+        // Calculate position percent
         let positionPercent = (mouseY / timelineHeight) * 100;
         positionPercent = Math.max(0, Math.min(100, positionPercent));
 
-        // 计算对应的时间（8:00 - 20:00，共12小时）
-        const totalMinutes = 12 * 60; // 12小时 * 60分钟
+        // Calculate corresponding time
+        const totalMinutes = 12 * 60; // 12 hours * 60 minutes
         const minutesFromStart = (positionPercent / 100) * totalMinutes;
 
-        // 计算小时和分钟，并应用snap-to-grid（根据timelineConfig.snapMinutes）
+        // Calculate hour and minute, handle snap-to-grid
         const startHour = 8;
         const snapMinutes = timelineConfig.snapMinutes;
 
-        // 计算原始小时和分钟
+        // Calculate raw hour and minute
         let rawHour = startHour + Math.floor(minutesFromStart / 60);
         let rawMinute = minutesFromStart % 60;
 
-        // 应用snap-to-grid，吸附到最近的snapMinutes刻度
+        // Apply snap-to-grid
         const snappedMinute = Math.round(rawMinute / snapMinutes) * snapMinutes;
 
-        // 处理分钟进位
+        // Handle carry over
         const hour = snappedMinute === 60 ? rawHour + 1 : rawHour;
         const minute = snappedMinute === 60 ? 0 : snappedMinute;
 
-        // 格式化时间字符串
+        // Format time string
         const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 
-        // 创建时间戳
+        // Create Date object
         const date = new Date();
 
-        // 如果是周视图，计算鼠标所在的日期
+        // In week view, determine date based on column
         if (viewMode === 'week' && isWeekTimeline(timelineModel)) {
-          // 计算周视图中每列的宽度
+          // Get column info in week view
           const weekContent = timelineContentRef.current.querySelector('.timeline-week-content');
           const columnsContainer = weekContent?.querySelector('.timeline-week-columns');
           const timeScale = weekContent?.querySelector('.timeline-week-time-scale');
@@ -544,22 +590,22 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
             const columnsWidth = columnsRect.width;
             const columnWidth = columnsWidth / 7;
 
-            // 计算鼠标所在的列索引
+            // Calculate column index
             const columnIndex = Math.min(Math.floor((mouseX - timeScaleRect.width) / columnWidth), 6);
 
-            // 计算对应的日期
+            // Calculate target date
             const targetDate = new Date(timelineModel.weekStart);
             targetDate.setDate(targetDate.getDate() + columnIndex);
             date.setFullYear(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
           }
         } else {
-          // 日视图，使用当前选择的日期
+          // Use current selection year/month/day
           date.setFullYear(parseInt(selectedDate.split('-')[0]), parseInt(selectedDate.split('-')[1]) - 1, parseInt(selectedDate.split('-')[2]));
         }
 
         date.setHours(hour, minute, 0, 0);
 
-        // 更新ref值
+        // Update drag indicator refs
         dragIndicatorPositionRef.current = positionPercent;
         dragIndicatorTimeRef.current = timeStr;
         dragIndicatorTimeStampRef.current = date;
@@ -569,7 +615,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     }
   };
 
-  // 拖拽结束处理
+  // Handle drag end
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     const lastOverId = lastOverIdRef.current;
@@ -584,7 +630,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     setDraggingOverTimeline(null);
     setDraggingSize(null);
 
-    // 隐藏拖拽指示器
+    // Hide drag indicator
     setShowDragIndicator(false);
 
     let overId = (over?.id ?? lastOverId) as string | null;
@@ -596,37 +642,35 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       const centerY = dragRect.top + dragRect.height / 2;
       overId = getColumnIdFromPoint(centerX, centerY);
     }
-    // 确保拖拽目标有效
+    // Ensure drag target is valid
     if (!overId || active.id === overId) {
       return;
     }
 
-    // 确保 todayData 存在
+    // Ensure todayData exists
     if (!todayData) {
       console.error('Today data is null');
       return;
     }
 
-    // 从 active.data 中获取源列信息
     const sourceColumnId = active.data.current?.columnId as string;
     if (!sourceColumnId) {
       console.error('Source column ID not found in active data');
       return;
     }
 
-    // 定义有效列 ID
+    // Define valid Column IDs
     const validColumnIds = ['todo', 'doing', 'verify', 'done'] as const;
 
-    // 确保源列 ID 有效
+    // Ensure source column ID is valid
     if (!validColumnIds.includes(sourceColumnId as any)) {
       console.error('Invalid source column ID:', sourceColumnId);
       return;
     }
 
-    // 获取源列任务
+    // Get source column tasks
     const sourceTasks = [...todayData.kanban[sourceColumnId as typeof validColumnIds[number]]];
 
-    // 找到拖拽的任务
     const draggedTaskIndex = sourceTasks.findIndex(task => task.id === active.id);
     if (draggedTaskIndex === -1) {
       console.error('Dragged task not found in source column');
@@ -634,52 +678,49 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     }
     const draggedTask = sourceTasks[draggedTaskIndex];
 
-    // 处理目标列
     let targetColumnId = sourceColumnId;
+    const overTaskData = over?.data?.current;
     let targetTasks = [...sourceTasks];
     let insertIndex = -1;
 
-    // 检查 over 是否为列容器
     const isOverColumn = typeof overId === 'string' && overId.startsWith('column:');
 
-    // 检查 over 是否为时间线项目
     const isOverTimeline = typeof overId === 'string' && overId.startsWith('timeline:');
 
     if (isOverTimeline) {
-      // 处理时间线拖拽
-      // 使用拖拽结束时的位置作为开始时间
+      // Dragging to timeline
+      // Use drag indicator time as start time
       if (dragIndicatorTimeRef.current && dragIndicatorTimeStampRef.current) {
         const timeStr = dragIndicatorTimeRef.current;
         const date = dragIndicatorTimeStampRef.current;
 
-        // 验证：检查任务是否有预估时间
+        // Validation: Check if task has estimate time
         if (!draggedTask.estimate_min) {
-          alert('请先为任务设置预估时间，再进行排期');
+          alert('Task has no estimate time, cannot schedule');
           return;
         }
 
-        // 验证：检查时间格式
         const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
         if (!timeRegex.test(timeStr)) {
-          alert('无效的时间格式');
+          alert('Invalid time format');
           return;
         }
 
-        // 验证：检查时间段是否可用，避免与现有任务重叠
+        // Validation: Check if time slot is available, avoid overlap with existing tasks
         const isAvailable = isTimeSlotAvailable(todayData.timeline, timeStr, draggedTask.estimate_min);
         if (!isAvailable) {
-          alert('该时间段已被其他任务占用，请选择其他时间段');
+          alert('Time slot occupied, please choose another time');
           return;
         }
 
-        // 实现将任务添加到时间线的逻辑
-        // 1. 准备任务数据
+        // Logic to add task to timeline
+        // 1. Prepare task data
         const scheduledDate = dragIndicatorTimeStampRef.current.toISOString().split('T')[0];
         const scheduledStart = `${scheduledDate}T${timeStr}`;
         const estimatedEnd = calculateEstimatedEnd(scheduledStart, draggedTask.estimate_min);
         const scheduleDueDate = draggedTask.due_date || scheduledDate;
 
-        // 2. 检查时间段是否被占用（基于任务时长的精确检查）
+        // 2. Check if time slot is occupied (precise check based on duration)
         let hasConflict = false;
 
         if (todayData && todayData.timeline) {
@@ -695,31 +736,31 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
             const taskStartTotalMinutes = taskHour * 60 + taskMinute;
             const taskEndTotalMinutes = taskStartTotalMinutes + task.estimate_min;
 
-            // 检查时间重叠
+            // Check conflict 
             return !(endTotalMinutes <= taskStartTotalMinutes || startTotalMinutes >= taskEndTotalMinutes);
           });
         }
 
-        // 3. 如果有冲突，显示确认对话框
+        // 3. Handle conflict with confirmation
         if (hasConflict) {
-          const confirmOverwrite = window.confirm(`该时间段已有任务，是否继续排期？`);
+          const confirmOverwrite = window.confirm('Time slot occupied, overwrite?');
           if (!confirmOverwrite) {
             return;
           }
         }
 
-        // 4. 更新任务
+        // 4. Update task
         try {
-          // 将任务从原看板列中移除
+          // Update scheduled time and status
           await updateTask({
             id: draggedTask.id,
-            status: 'todo', // 将任务状态改为todo，因为已排期
+            status: 'todo', // Change status to todo since it's scheduled
             scheduled_start: scheduledStart,
             scheduled_end: estimatedEnd,
             ...(draggedTask.due_date ? {} : { due_date: scheduleDueDate }),
           });
 
-          // 5. 从原列中移除任务（乐观更新）
+          // 5. Remove task from source column (optimistic update)
           const updatedSourceTasks = sourceTasks.filter(task => task.id !== draggedTask.id);
           const updatedKanban = {
             ...todayData.kanban,
@@ -727,29 +768,26 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
           };
           updateKanban(updatedKanban);
 
-          // 6. 重新加载数据确保一致性
-          await loadTodayData(yyyymmdd);
+          // 6. Reload data to ensure consistency         await loadTodayData(yyyymmdd);
 
-          // 7. 保存快照
+          // 7. Save snapshot
           saveSnapshot();
 
-          // 8. 显示成功提示
-          alert(`任务 "${draggedTask.title}" 已成功排期到 ${timeStr}`);
+          // 8. Show success message
+          alert(`Task "${draggedTask.title}" scheduled to "${timeStr}"`);
         } catch (error) {
           console.error('Failed to schedule task:', error);
-          alert(`排期失败: ${(error as Error).message}`);
-          // 回滚到快照状态
-          rollback();
+          alert(`Scheduling failed: ${(error as Error).message}`);
+          // Rollback to snapshot         rollback();
         }
 
         return;
       }
     } else if (!isOverColumn) {
-      // over 是任务，获取目标列信息
-      const overTaskData = over?.data?.current;
+      // over is task, get target column info
       if (overTaskData) {
         targetColumnId = overTaskData.columnId;
-        // 确保目标列 ID 有效
+        // Verify target column ID is valid
         if (!validColumnIds.includes(targetColumnId as any)) {
           console.error('Invalid target column ID:', targetColumnId);
           return;
@@ -758,8 +796,6 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         targetTasks = [...todayData.kanban[targetColumnId as typeof validColumnIds[number]]];
         insertIndex = targetTasks.findIndex(task => task.id === overId);
       } else {
-        // 如果无法从 over.data 获取目标列信息，尝试查找 over.id 对应的任务
-        // 遍历所有列，查找 over.id 对应的任务
         let foundTask = null;
         for (const columnId of validColumnIds) {
           const tasks = todayData.kanban[columnId as typeof validColumnIds[number]];
@@ -779,46 +815,45 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         }
       }
     } else {
-      // over 是列容器，获取列 ID
+      // Over is column container, get column ID
       if (typeof overId === 'string') {
         targetColumnId = overId.replace('column:', '');
 
-        // 确保目标列 ID 有效
+        // Ensure target ID is valid
         if (!validColumnIds.includes(targetColumnId as any)) {
           console.error('Invalid target column ID:', targetColumnId);
           return;
         }
 
         targetTasks = [...todayData.kanban[targetColumnId as typeof validColumnIds[number]]];
-        insertIndex = targetTasks.length; // 插入到列尾
+        insertIndex = targetTasks.length;
       } else {
         console.error('Invalid column ID type:', overId);
         return;
       }
     }
 
-    // 执行拖拽操作
+    // Execute drag operation
     let updatedSourceTasks = sourceTasks;
     let updatedTargetTasks = targetTasks;
 
     if (sourceColumnId === targetColumnId) {
-      // 同列拖拽
+      // Same column drag
       updatedTargetTasks = arrayMove(updatedTargetTasks, draggedTaskIndex, insertIndex);
     } else {
-      // 跨列拖拽
-      // 从源列移除任务
-      updatedSourceTasks.splice(draggedTaskIndex, 1);
-      // 添加到目标列
+      // Cross column drag
+      // Remove task from source column     updatedSourceTasks.splice(draggedTaskIndex, 1);
+      // Add to target column
       updatedTargetTasks.splice(insertIndex, 0, {
         ...draggedTask,
         status: targetColumnId as any,
       });
     }
 
-    // 计算新的 order_index
+    // Calculate new order_index
     const tasksToUpdate: Array<{ id: string; status?: string; order_index: number }> = [];
 
-    // 更新源列任务的 order_index
+    // Update source column task order_index
     updatedSourceTasks.forEach((task, index) => {
       tasksToUpdate.push({
         id: task.id,
@@ -827,7 +862,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       });
     });
 
-    // 更新目标列任务的 order_index
+    // Update target column task order_index
     if (sourceColumnId !== targetColumnId) {
       updatedTargetTasks.forEach((task, index) => {
         tasksToUpdate.push({
@@ -837,7 +872,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         });
       });
     } else {
-      // 同列拖拽只更新目标列任务的 order_index
+      // Same column drag only updates target column task order_index
       updatedTargetTasks.forEach((task, index) => {
         tasksToUpdate.push({
           id: task.id,
@@ -847,10 +882,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       });
     }
 
-    // 先保存快照，然后再进行乐观更新
-    saveSnapshot();
+    // Save snapshot first, then optimistic update   saveSnapshot();
 
-    // 本地更新 UI（乐观更新）
+    // Local UI update (optimistic update)
     const updatedKanban = {
       ...todayData.kanban,
       [sourceColumnId]: updatedSourceTasks,
@@ -858,23 +892,21 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     };
     updateKanban(updatedKanban);
 
-    // 批量更新到数据库
+    // Batch update to database
     try {
       await reorderTasks(tasksToUpdate);
     } catch (error) {
       console.error('Failed to reorder tasks:', error);
-      alert('排序更新失败，已恢复原顺序');
-      // 先快速回滚到快照状态
-      rollback();
-      // 再异步重拉数据确保最终一致性
-      await loadTodayData(yyyymmdd);
+      alert('Reorder failed, reverted changes');
+      // Quick rollback to snapshot     rollback();
+      // Async reload to ensure consistency     await loadTodayData(yyyymmdd);
     }
   };
 
   // Open daily log
   const handleOpenDaily = async () => {
     // TODO: Implement open daily log functionality
-    alert('打开每日日志功能尚未实现');
+    alert('Daily log not implemented yet');
   };
 
   // Get data from store
@@ -897,7 +929,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     };
   }, [hasVault, selectedDate]);
 
-  // 新建任务模态框处理
+  // Handle Create Task Modal
   const handleOpenCreateModal = () => {
     setIsCreateModalOpen(true);
   };
@@ -913,7 +945,6 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     loadTodayData(selectedDate);
   };
 
-  // 任务状态菜单处理
   const handleOpenStatusMenu = (e: React.MouseEvent, task: Task) => {
     e.preventDefault();
     e.stopPropagation();
@@ -976,12 +1007,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     if (!editingTask) return;
     const nextTitle = editTitle.trim();
     if (!nextTitle) {
-      alert('任务标题不能为空');
+      alert('Title cannot be empty');
       return;
     }
     // const parsedEstimate = editEstimateMin ? Number(editEstimateMin) : undefined;
     // if (editEstimateMin && parsedEstimate && (!Number.isFinite(parsedEstimate) || parsedEstimate <= 0)) {
-    //   alert('预计时间需为正整数');
+    //   alert('Invalid estimate time');
     //   return;
     // }
 
@@ -1030,8 +1061,8 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       await updateTask(payload);
       handleCloseEditModal();
     } catch (error) {
-      console.error('更新任务失败:', error);
-      alert(`更新任务失败: ${(error as Error).message}`);
+      console.error('Save failed:', error);
+      alert(`Save failed: ${(error as Error).message}`);
     }
   };
 
@@ -1077,10 +1108,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     try {
       await deleteTask(editingTask.id);
       handleCloseEditModal();
-      // 使用更友好的提示方式，避免重复提示
+      // Refresh task list
     } catch (error) {
-      console.error('删除任务失败:', error);
-      // 错误处理由 deleteTask 函数内部处理，不需要重复提示
+      console.error('Failed to delete task:', error);
+      // Handle delete errors
     }
     finally {
       setIsDeleteConfirmOpen(false);
@@ -1097,7 +1128,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     handleCloseStatusMenu();
   };
 
-  // 点击页面其他地方关闭菜单
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       handleCloseStatusMenu();
@@ -1120,12 +1151,14 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         if (!input) {
           return;
         }
+        // Update task with due date
         await updateTask({
           id: selectedTask.id,
           status: newStatus,
           due_date: input,
         });
       } else {
+        // Update task status
         await updateTask({
           id: selectedTask.id,
           status: newStatus,
@@ -1133,32 +1166,32 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       }
       handleCloseStatusMenu();
     } catch (error) {
-      console.error('更新任务状态失败:', error);
-      alert(`更新任务状态失败: ${(error as Error).message}`);
+      console.error('Update task status failed:', error);
+      alert(`Update task status failed: ${(error as Error).message}`);
     }
   };
 
-  // 标记任务完成
+  // Mark task as done
   const handleMarkTaskDone = async (taskId: string) => {
     try {
       await markTaskDone(taskId);
     } catch (error) {
-      console.error('标记任务完成失败:', error);
-      alert(`标记任务完成失败: ${(error as Error).message}`);
+      console.error('Mark task done failed:', error);
+      alert(`Mark task done failed: ${(error as Error).message}`);
     }
   };
 
-  // 重新打开任务
+  // Reopen task
   const handleReopenTask = async (taskId: string) => {
     try {
       await reopenTask(taskId);
     } catch (error) {
-      console.error('重新打开任务失败:', error);
-      alert(`重新打开任务失败: ${(error as Error).message}`);
+      console.error('Reopen task failed:', error);
+      alert(`Reopen task failed: ${(error as Error).message}`);
     }
   };
 
-  // 开始任务
+  // Start task
   const handleStartTask = async (taskId: string) => {
     try {
       const task = getTaskById(taskId);
@@ -1167,6 +1200,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         if (!input) {
           return;
         }
+        // Update task with due date
         await updateTask({
           id: taskId,
           due_date: input,
@@ -1174,45 +1208,47 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       }
       await startTask(taskId);
     } catch (error) {
-      console.error('开始任务失败:', error);
-      alert(`开始任务失败: ${(error as Error).message}`);
+      console.error('Start task failed:', error);
+      alert(`Start task failed: ${(error as Error).message}`);
     }
   };
 
-  // 停止任务
+  // Stop task
   const handleStopTask = async (taskId: string) => {
     try {
       await stopTask(taskId);
     } catch (error) {
-      console.error('停止任务失败:', error);
-      alert(`停止任务失败: ${(error as Error).message}`);
+      console.error('Stop task failed:', error);
+      alert(`Stop task failed: ${(error as Error).message}`);
     }
   };
 
   // Update task priority
   const handleUpdatePriority = async (taskId: string, priority?: Task['priority']) => {
     try {
+      // Update task priority
       await updateTask({
         id: taskId,
         priority,
       });
       handleCloseStatusMenu();
     } catch (error) {
-      console.error('更新任务优先级失败:', error);
-      alert(`更新任务优先级失败: ${(error as Error).message}`);
+      console.error('Update priority failed:', error);
+      alert(`Update priority failed: ${(error as Error).message}`);
     }
   };
 
   // Update task tags
   const handleUpdateTags = async (taskId: string, tags: string[]) => {
     try {
+      // Update task tags
       await updateTask({
         id: taskId,
         tags,
       });
     } catch (error) {
-      console.error('更新任务标签失败:', error);
-      alert(`更新任务标签失败: ${(error as Error).message}`);
+      console.error('Update tags failed:', error);
+      alert(`Update tags failed: ${(error as Error).message}`);
     }
   };
 
@@ -1262,7 +1298,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     // Validate inputs
     const estimateMin = scheduleEditorEstimateMin ? parseInt(scheduleEditorEstimateMin) : undefined;
     if (estimateMin !== undefined && (isNaN(estimateMin) || estimateMin < 1 || estimateMin > 1440)) {
-      setScheduleEditorError('预计时间必须是1-1440之间的整数');
+      setScheduleEditorError('Estimate must be between 1 and 1440 minutes');
       return;
     }
 
@@ -1271,7 +1307,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       // Parse scheduled start time
       const startParts = editingScheduleTask.scheduled_start.split('T');
       if (startParts.length !== 2) {
-        setScheduleEditorError('无效的开始时间格式');
+        setScheduleEditorError('Invalid start time');
         return;
       }
 
@@ -1281,7 +1317,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
       // Check if end time is earlier than start time
       if (endTimePart < startTimePart) {
-        setScheduleEditorError('结束时间不能早于开始时间');
+        setScheduleEditorError('End time cannot be earlier than start time');
         return;
       }
 
@@ -1291,6 +1327,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
     try {
       // Update task
+      setScheduleEditorError('Update schedule failed: ');
       await updateTask({
         id: editingScheduleTask.id,
         estimate_min: estimateMin,
@@ -1301,8 +1338,8 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
       handleCloseScheduleEditor();
       loadTodayData(selectedDate);
     } catch (error) {
-      console.error('更新任务排程失败:', error);
-      setScheduleEditorError(`更新任务排程失败: ${(error as Error).message}`);
+      console.error('Update schedule failed:', error);
+      setScheduleEditorError(`Update schedule failed: ${(error as Error).message}`);
     }
   };
 
@@ -1472,7 +1509,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     );
   };
 
-  // Handle task card click to open note (debounced to allow double click)
+  // Handle task card click
   const handleTaskCardClick = (task: Task) => {
     if (clickTimerRef.current) {
       window.clearTimeout(clickTimerRef.current);
@@ -1486,7 +1523,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         // 实际项目中应该调用现有的打开文件机制
       } catch (error) {
         console.error('Failed to open task note:', error);
-        alert(`打开任务笔记失败: ${(error as Error).message}`);
+        alert(`Failed to open task note: ${(error as Error).message}`);
       }
     }, 220);
   };
@@ -1499,40 +1536,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     handleOpenEditModal(task);
   };
 
-  // 自定义 SortableItem 组件，用于包装任务卡片，使其支持拖拽
-  const SortableTaskCard = ({ task, columnId }: { task: Task; columnId: string }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging
-    } = useSortable({
-      id: task.id,
-      data: {
-        columnId,
-        task,
-      },
-    });
 
-    const style = {
-      transform: transform ? CSS.Transform.toString(transform) : undefined,
-      transition,
-      opacity: isDragging ? 0 : 1, // 拖拽时原位置卡片透明化
-    };
-
-    return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        className={`task-card-wrapper ${isDragging ? 'dragging' : ''}`}
-        {...attributes}
-      >
-        {renderTaskCard(task, listeners)}
-      </div>
-    );
-  };
 
   // Render task card
   const renderTaskCard = (task: Task, listeners: any) => {
@@ -1550,12 +1554,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
     // Tag color mapping
     const tagColorMap: Record<string, string> = {
-      '行政': 'orange',
-      '个人': 'indigo',
-      '设计系统': 'blue',
-      '开发': 'purple',
+      '开发': 'orange',
+      '设计': 'indigo',
+      '测试': 'blue',
+      '文档': 'purple',
       '会议': 'slate',
-      '调研': 'green',
+      '学习': 'green',
       'bug': 'red'
     };
 
@@ -1617,13 +1621,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               {tagList && tagList.length > 0 ? (
                 <span className={`task-tag ${getTagColorClass(tagList[0])}`}>{tagList[0]}</span>
               ) : (
-                <span className="task-tag slate">Unlabeled</span>
+                <span className="task-tag slate">无标签</span>
               )}
             </div>
           </div>
 
           <h3 className="task-title">{task.title}</h3>
-        </div>
+        </div >
 
         {/* Bottom metadata area - 下部区域可双击编辑 */}
         <div className="task-card-footer" onDoubleClick={() => handleTaskCardDoubleClick(task)}>
@@ -1643,10 +1647,34 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
-                <span className="task-timer-text">{elapsedTime}</span>
+                {elapsedTime}
               </div>
             )}
           </div>
+
+          <button
+            className="task-workspace-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              openTaskTab(task.id, task.title);
+            }}
+            title="Enter Task Workspace"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              marginLeft: 'auto'
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+          </button>
+
           {isCompleted && (
             <span className="task-completed-icon">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1659,12 +1687,48 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
     );
   };
 
+  // SortableTaskCard component
+  const SortableTaskCard = ({ task, columnId }: { task: Task; columnId: string }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging
+    } = useSortable({
+      id: task.id,
+      data: {
+        columnId,
+        task,
+      },
+    });
+
+    const style: React.CSSProperties = {
+      transform: transform ? CSS.Transform.toString(transform) : undefined,
+      transition,
+      opacity: isDragging ? 0 : 1,
+      visibility: isDragging ? 'hidden' : 'visible',
+    };
+
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`task-card-wrapper ${isDragging ? 'dragging' : ''}`}
+        {...attributes}
+      >
+        {renderTaskCard(task, listeners)}
+      </div>
+    );
+  };
+
   return (
     <>
       <section className="home-pane">
         <div className="dashboard-container">
           {/* Header */}
-          <header className="dashboard-header">
+          < header className="dashboard-header" >
             <div className="dashboard-header-left">
               <div className="dashboard-logo">
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1677,20 +1741,22 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 </svg>
               </div>
               <div className="dashboard-date-info">
-                <h1 className="dashboard-date">{month}{day}日 {weekday}</h1>
-                <span className="dashboard-subtitle">今日规划与执行看板</span>
+                <h1 className="dashboard-date">{month}{day} {weekday}</h1>
+                <span className="dashboard-subtitle">每日计划与执行</span>
               </div>
             </div>
 
             {/* Vault Selection CTA */}
-            {!hasVault && (
-              <div className="dashboard-vault-cta">
-                <span className="vault-cta-text">请选择工作目录以开始规划</span>
-                <button className="vault-cta-button" onClick={onSelectVault}>
-                  选择目录
-                </button>
-              </div>
-            )}
+            {
+              !hasVault && (
+                <div className="dashboard-vault-cta">
+                  <span className="vault-cta-text">选择一个库以开始规划</span>
+                  <button className="vault-cta-button" onClick={onSelectVault}>
+                    选择库
+                  </button>
+                </div>
+              )
+            }
 
             <div className="dashboard-search">
               <span className="dashboard-search-icon">
@@ -1699,7 +1765,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
               </span>
-              <input type="text" className="dashboard-search-input" placeholder="搜索任务..." />
+              <input type="text" className="dashboard-search-input" placeholder="搜索..." />
             </div>
 
             <div className="dashboard-header-right">
@@ -1716,7 +1782,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   <line x1="8" y1="2" x2="8" y2="6"></line>
                   <line x1="3" y1="10" x2="21" y2="10"></line>
                 </svg>
-                每日日志
+                Daily Log
               </button>
               <button className="dashboard-new-task-btn" onClick={handleOpenCreateModal}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1729,78 +1795,79 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
             </div>
 
             {/* Filter Panel */}
-            {filterPanelOpen && (
-              <div className="dashboard-filter-panel-overlay" onClick={() => setFilterPanelOpen(false)}>
-                <div className="dashboard-filter-panel" onClick={(e) => e.stopPropagation()}>
-                  <div className="dashboard-filter-panel-header">
-                    <h3>筛选</h3>
-                    <button className="dashboard-filter-panel-close" onClick={() => setFilterPanelOpen(false)}>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="dashboard-filter-panel-content">
-                    <div className="dashboard-filter-section">
-                      <span className="dashboard-filter-label">标签:</span>
-                      <div className="dashboard-filter-tags">
-                        {getAllUniqueTags().map(tag => (
-                          <button
-                            key={tag}
-                            className={`dashboard-filter-tag ${uiState.filters.tags.includes(tag) ? 'active' : ''}`}
-                            onClick={() => handleToggleTagFilter(tag)}
-                          >
-                            {tag}
-                            {uiState.filters.tags.includes(tag) && (
-                              <span className="dashboard-filter-tag-remove">&times;</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="dashboard-filter-section">
-                      <span className="dashboard-filter-label">优先级:</span>
-                      <div className="dashboard-filter-priorities">
-                        <button
-                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p0' ? 'active' : ''}`}
-                          onClick={() => handleSetPriorityFilter('p0')}
-                        >
-                          P0
-                        </button>
-                        <button
-                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p1' ? 'active' : ''}`}
-                          onClick={() => handleSetPriorityFilter('p1')}
-                        >
-                          P1
-                        </button>
-                        <button
-                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p2' ? 'active' : ''}`}
-                          onClick={() => handleSetPriorityFilter('p2')}
-                        >
-                          P2
-                        </button>
-                        <button
-                          className={`dashboard-filter-priority ${uiState.filters.priority === 'p3' ? 'active' : ''}`}
-                          onClick={() => handleSetPriorityFilter('p3')}
-                        >
-                          P3
-                        </button>
-                      </div>
-                    </div>
-                    {(uiState.filters.tags.length > 0 || uiState.filters.priority) && (
-                      <button className="dashboard-filter-clear" onClick={handleClearFilters}>
-                        清除筛选
+            {
+              filterPanelOpen && (
+                <div className="dashboard-filter-panel-overlay" onClick={() => setFilterPanelOpen(false)}>
+                  <div className="dashboard-filter-panel" onClick={(e) => e.stopPropagation()}>
+                    <div className="dashboard-filter-panel-header">
+                      <h3>筛选</h3>
+                      <button className="dashboard-filter-panel-close" onClick={() => setFilterPanelOpen(false)}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
                       </button>
-                    )}
+                    </div>
+                    <div className="dashboard-filter-panel-content">
+                      <div className="dashboard-filter-section">
+                        <span className="dashboard-filter-label">标签:</span>
+                        <div className="dashboard-filter-tags">
+                          {getAllUniqueTags().map(tag => (
+                            <button
+                              key={tag}
+                              className={`dashboard-filter-tag ${uiState.filters.tags.includes(tag) ? 'active' : ''}`}
+                              onClick={() => handleToggleTagFilter(tag)}
+                            >
+                              {tag}
+                              {uiState.filters.tags.includes(tag) && (
+                                <span className="dashboard-filter-tag-remove">&times;</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="dashboard-filter-section">
+                        <span className="dashboard-filter-label">优先级:</span>
+                        <div className="dashboard-filter-priorities">
+                          <button
+                            className={`dashboard-filter-priority ${uiState.filters.priority === 'p0' ? 'active' : ''}`}
+                            onClick={() => handleSetPriorityFilter('p0')}
+                          >
+                            P0
+                          </button>
+                          <button
+                            className={`dashboard-filter-priority ${uiState.filters.priority === 'p1' ? 'active' : ''}`}
+                            onClick={() => handleSetPriorityFilter('p1')}
+                          >
+                            P1
+                          </button>
+                          <button
+                            className={`dashboard-filter-priority ${uiState.filters.priority === 'p2' ? 'active' : ''}`}
+                            onClick={() => handleSetPriorityFilter('p2')}
+                          >
+                            P2
+                          </button>
+                          <button
+                            className={`dashboard-filter-priority ${uiState.filters.priority === 'p3' ? 'active' : ''}`}
+                            onClick={() => handleSetPriorityFilter('p3')}
+                          >
+                            P3
+                          </button>
+                        </div>
+                      </div>
+                      {(uiState.filters.tags.length > 0 || uiState.filters.priority) && (
+                        <button className="dashboard-filter-clear" onClick={handleClearFilters}>
+                          清除筛选</button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </header>
+              )
+            }
+          </header >
 
           {/* Main Content */}
-          <main className={`dashboard-main view-mode-${viewMode}`}>
+          < main className={`dashboard-main view-mode-${viewMode}`}>
             <DndContext
               sensors={sensors}
               collisionDetection={(args) => {
@@ -1819,7 +1886,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               <aside className={`timeline-sidebar ${uiState.layout.timelineCollapsed ? 'collapsed' : ''}`}>
                 <div className="timeline-header">
                   <div className="timeline-schedule-info">
-                    <span className="timeline-schedule-label">已排期:</span>
+                    <span className="timeline-schedule-label">已排期</span>
                     <span className="timeline-schedule-hours">
                       {todayData ? getTotalScheduledHours(todayData.timeline) : '0.0'}h
                     </span>
@@ -1836,14 +1903,14 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       </svg>
                     </button>
                     <button className="timeline-today-badge" onClick={handleToday}>
-                      {selectedDate === new Date().toISOString().split('T')[0] ? '今日' : '回到今天'}
+                      {selectedDate === new Date().toISOString().split('T')[0] ? 'Today' : 'Back to Today'}
                     </button>
                   </div>
                   {/* Week View Toggle */}
                   <button
                     className={`timeline-view-toggle ${viewMode === 'week' ? 'active' : ''}`}
                     onClick={() => setViewMode(viewMode === 'day' ? 'week' : 'day')}
-                    title={viewMode === 'day' ? '切换到周视图' : '切换到日视图'}
+                    title={viewMode === 'day' ? 'Switch to Week View' : 'Switch to Day View'}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -1874,7 +1941,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 {/* Filtered indicator */}
                 {(uiState.filters.tags.length > 0 || uiState.filters.priority) && (
                   <div className="timeline-filter-indicator">
-                    <span>筛选中</span>
+                    <span>筛选条件:</span>
                     <button
                       className="timeline-filter-clear-btn"
                       onClick={handleClearFilters}
@@ -1974,7 +2041,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                               new Date(dayModel.busyBlocks[0].start) :
                               new Date(timelineModel.weekStart.getTime() + index * 24 * 60 * 60 * 1000);
 
-                            const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+                            const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
                             const isToday = date.toDateString() === new Date().toDateString();
 
                             return (
@@ -2009,11 +2076,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                   {/* 日期分隔线 */}
                                   <div className="timeline-week-column-divider"></div>
 
-                                  {/* 时间线内容 */}
+                                  {/* 时间轴内容 */}
                                   <div className="timeline-week-column-content">
                                     {/* 已排期块 */}
                                     {dayModel.busyBlocks.map(block => {
-                                      // 计算基础高度百分比
                                       const heightPercent = (block.durationMinutes / (12 * 60)) * 100;
                                       // 计算顶部位置，添加0.5%的上边距
                                       const topPercent = ((block.start.getHours() * 60 + block.start.getMinutes() - 480) / (12 * 60)) * 100 + 0.5;
@@ -2025,7 +2091,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                           style={{
                                             top: `${topPercent}%`,
                                             height: `${heightPercent - 1}%`, // 减去1%的下边距
-                                            // 添加最小高度，确保小任务也能清晰显示
+                                            // TODO: 优化最小高度
                                             minHeight: '35px',
                                           }}
                                         >
@@ -2060,7 +2126,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                           style={{
                                             top: `${topPercent}%`,
                                             height: `${heightPercent - 1}%`, // 减去1%的下边距
-                                            // 添加最小高度，确保每个空闲块都能清晰显示
+                                            // TODO: 优化最小高度
                                             minHeight: '35px',
                                           }}
                                         >
@@ -2088,11 +2154,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               <section className="kanban-section">
                 <div className="kanban-header">
                   <div className="kanban-title-section">
-                    <h2 className="kanban-title">任务执行看板</h2>
+                    <h2 className="kanban-title">任务看板</h2>
                     <nav className="kanban-nav">
                       <button className="kanban-nav-btn active">我的任务</button>
-                      <button className="kanban-nav-btn">团队协作</button>
-                      <button className="kanban-nav-btn">归档项目</button>
+                      <button className="kanban-nav-btn">团队</button>
+                      <button className="kanban-nav-btn">归档</button>
                     </nav>
                   </div>
                   <div className="kanban-actions">
@@ -2148,7 +2214,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         <div className="status-carousel-header">
                           <div className="status-header-left">
                             <div className="status-indicator todo"></div>
-                            <span className="status-name">待做</span>
+                            <span className="status-name">Todo</span>
                           </div>
                           <span className="status-count">
                             {getFilteredTasks().todo.length > 0
@@ -2169,7 +2235,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 );
                               })()
                             ) : (
-                              <div className="empty-message" style={{ pointerEvents: 'none' }}>暂无任务</div>
+                              <div className="empty-message" style={{ pointerEvents: 'none' }}>拖拽任务</div>
                             )}
                           </div>
 
@@ -2219,7 +2285,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         <div className="status-carousel-header">
                           <div className="status-header-left">
                             <div className="status-indicator doing"></div>
-                            <span className="status-name">进行中</span>
+                            <span className="status-name">Doing</span>
                           </div>
                           <span className="status-count">
                             {getFilteredTasks().doing.length > 0
@@ -2240,7 +2306,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 );
                               })()
                             ) : (
-                              <div className="empty-message" style={{ pointerEvents: 'none' }}>暂无任务</div>
+                              <div className="empty-message" style={{ pointerEvents: 'none' }}>拖拽任务</div>
                             )}
                           </div>
 
@@ -2290,7 +2356,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         <div className="status-carousel-header">
                           <div className="status-header-left">
                             <div className="status-indicator verify"></div>
-                            <span className="status-name">待核验</span>
+                            <span className="status-name">Verify</span>
                           </div>
                           <span className="status-count">
                             {getFilteredTasks().verify.length > 0
@@ -2311,7 +2377,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 );
                               })()
                             ) : (
-                              <div className="empty-message" style={{ pointerEvents: 'none' }}>暂无任务</div>
+                              <div className="empty-message" style={{ pointerEvents: 'none' }}>拖拽任务</div>
                             )}
                           </div>
 
@@ -2361,7 +2427,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         <div className="status-carousel-header">
                           <div className="status-header-left">
                             <div className="status-indicator done"></div>
-                            <span className="status-name">已完成</span>
+                            <span className="status-name">Done</span>
                           </div>
                           <span className="status-count">
                             {getFilteredTasks().done.length > 0
@@ -2434,7 +2500,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       >
                         <div className="kanban-column-header">
                           <div className="kanban-column-title-section">
-                            <span className="kanban-column-title">待做</span>
+                            <span className="kanban-column-title">Todo</span>
                             <span className="kanban-column-count">
                               {getFilteredTasks().todo.length}
                             </span>
@@ -2448,9 +2514,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </div>
                         <div className="kanban-tasks">
                           {isLoading ? (
-                            <div className="loading-message">加载中...</div>
+                            <div className="loading-message">Loading...</div>
                           ) : error ? (
-                            <div className="error-message">加载失败: {error.message}</div>
+                            <div className="error-message">Error: {error.message}</div>
                           ) : todayData ? (
                             getFilteredTasks().todo.length > 0 ? (
                               getFilteredTasks().todo.map(task => (
@@ -2459,7 +2525,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                             ) : (
                               <div className="empty-message">
                                 {(uiState.filters.tags.length > 0 || uiState.filters.priority) ?
-                                  '筛选条件下暂无任务' : '暂无任务'}
+                                  '无匹配任务' : '暂无任务'}
                               </div>
                             )
                           ) : (
@@ -2476,7 +2542,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       >
                         <div className="kanban-column-header">
                           <div className="kanban-column-title-section">
-                            <span className="kanban-column-title">进行中</span>
+                            <span className="kanban-column-title">Doing</span>
                             <span className="kanban-column-count">
                               {getFilteredTasks().doing.length}
                             </span>
@@ -2484,9 +2550,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </div>
                         <div className="kanban-tasks">
                           {isLoading ? (
-                            <div className="loading-message">加载中...</div>
+                            <div className="loading-message">Loading...</div>
                           ) : error ? (
-                            <div className="error-message">加载失败: {error.message}</div>
+                            <div className="error-message">Error: {error.message}</div>
                           ) : todayData ? (
                             getFilteredTasks().doing.length > 0 ? (
                               getFilteredTasks().doing.map(task => (
@@ -2495,11 +2561,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                             ) : (
                               <div className="empty-message">
                                 {(uiState.filters.tags.length > 0 || uiState.filters.priority) ?
-                                  '筛选条件下暂无任务' : '暂无任务'}
+                                  '无匹配任务' : '拖拽任务到此处'}
                               </div>
                             )
                           ) : (
-                            <div className="empty-message">暂无任务</div>
+                            <div className="empty-message">拖拽任务到此处</div>
                           )}
                         </div>
                       </div>
@@ -2512,7 +2578,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       >
                         <div className="kanban-column-header">
                           <div className="kanban-column-title-section">
-                            <span className="kanban-column-title">待核验</span>
+                            <span className="kanban-column-title">Verify</span>
                             <span className="kanban-column-count">
                               {getFilteredTasks().verify.length}
                             </span>
@@ -2548,7 +2614,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       >
                         <div className="kanban-column-header">
                           <div className="kanban-column-title-section">
-                            <span className="kanban-column-title">已完成</span>
+                            <span className="kanban-column-title">Done</span>
                             <span className="kanban-column-count">
                               {getFilteredTasks().done.length}
                             </span>
@@ -2595,7 +2661,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                     </svg>
-                    点击卡片查看详情，拖拽卡片至左侧时间轴可快速排期
+                    拖拽任务以更改状态和顺序
                   </p>
                 </div>
               </section>
@@ -2617,12 +2683,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
           <div className="quick-schedule-modal-overlay">
             <div className="quick-schedule-modal">
               <div className="quick-schedule-modal-header">
-                <h3>快速安排任务</h3>
+                <h3>快速排期</h3>
                 <button
                   className="quick-schedule-close-btn"
                   onClick={() => {
                     setIsQuickScheduleOpen(false);
-                    // 重置表单
                     setQuickScheduleTitle('');
                     setQuickScheduleDuration(30);
                   }}
@@ -2635,12 +2700,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               </div>
               <div className="quick-schedule-modal-content">
                 <div className="quick-schedule-form-group">
-                  <label htmlFor="quick-schedule-title">任务名称</label>
+                  <label htmlFor="quick-schedule-title">任务标题</label>
                   <input
                     type="text"
                     id="quick-schedule-title"
                     className="quick-schedule-input"
-                    placeholder="输入任务名称"
+                    placeholder="做什么？"
                     value={quickScheduleTitle}
                     onChange={(e) => setQuickScheduleTitle(e.target.value)}
                     required
@@ -2655,9 +2720,9 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       value={quickScheduleDuration}
                       onChange={(e) => setQuickScheduleDuration(Number(e.target.value))}
                     >
-                      <option value="15">15分钟</option>
-                      <option value="30">30分钟</option>
-                      <option value="60">60分钟</option>
+                      <option value="15">15 Mins</option>
+                      <option value="30">30 Mins</option>
+                      <option value="60">60 Mins</option>
                     </select>
                   </div>
                   <div className="quick-schedule-form-group">
@@ -2686,11 +2751,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     if (!quickScheduleTitle.trim()) return;
 
                     try {
-                      // 计算结束时间
+                      // Calculate end time
                       const startDate = new Date(quickScheduleStartTime);
                       const endDate = new Date(startDate.getTime() + quickScheduleDuration * 60 * 1000);
 
-                      // 创建任务
+                      // Create task
                       await createTask({
                         title: quickScheduleTitle,
                         status: 'todo',
@@ -2702,13 +2767,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         order_index: 0,
                       });
 
-                      // 关闭弹窗并重置表单
-                      setIsQuickScheduleOpen(false);
+                      // Close modal
                       setQuickScheduleTitle('');
                       setQuickScheduleDuration(30);
                     } catch (error) {
                       console.error('Failed to create task:', error);
-                      alert(`创建任务失败: ${(error as Error).message}`);
+                      alert(`Failed to create task: ${(error as Error).message}`);
                     }
                   }}
                 >
@@ -2753,13 +2817,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     className="status-menu-item"
                     onClick={() => handleChangeTaskStatus('doing')}
                   >
-                    开始处理
+                    开始
                   </button>
                   <button
                     className="status-menu-item"
                     onClick={() => handleMarkTaskDone(selectedTask.id)}
                   >
-                    标记为已完成
+                    标记完成
                   </button>
                 </>
               )}
@@ -2770,19 +2834,19 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     className="status-menu-item"
                     onClick={() => handleChangeTaskStatus('todo')}
                   >
-                    暂停处理
+                    暂停
                   </button>
                   <button
                     className="status-menu-item"
                     onClick={() => handleChangeTaskStatus('verify')}
                   >
-                    提交核验
+                    提交审核
                   </button>
                   <button
                     className="status-menu-item"
                     onClick={() => handleMarkTaskDone(selectedTask.id)}
                   >
-                    标记为已完成
+                    标记完成
                   </button>
                 </>
               )}
@@ -2793,13 +2857,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     className="status-menu-item"
                     onClick={() => handleChangeTaskStatus('doing')}
                   >
-                    继续处理
+                    返回进行中
                   </button>
                   <button
                     className="status-menu-item"
                     onClick={() => handleMarkTaskDone(selectedTask.id)}
                   >
-                    核验通过
+                    通过审核
                   </button>
                 </>
               )}
@@ -2816,14 +2880,14 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     className="status-menu-item"
                     onClick={() => handleChangeTaskStatus('verify')}
                   >
-                    重新核验
+                    重新审核
                   </button>
                 </>
               )}
 
               {/* 优先级设置 */}
               <div className="status-menu-divider"></div>
-              <div className="status-menu-section-title">设置优先级：</div>
+              <div className="status-menu-section-title">设置优先级</div>
               <button
                 className={`status-menu-item ${selectedTask.priority === 'p0' ? 'active' : ''}`}
                 onClick={() => handleUpdatePriority(selectedTask.id, 'p0')}
@@ -2851,7 +2915,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
               {/* Tags management */}
               <div className="status-menu-divider"></div>
-              <div className="status-menu-section-title">标签管理：</div>
+              <div className="status-menu-section-title">管理标签</div>
               <button
                 className="status-menu-item"
                 onClick={() => handleOpenTagsEditor(selectedTask)}
@@ -2861,12 +2925,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
               {/* Schedule management */}
               <div className="status-menu-divider"></div>
-              <div className="status-menu-section-title">排程管理：</div>
+              <div className="status-menu-section-title">排期</div>
               <button
                 className="status-menu-item"
                 onClick={() => handleOpenScheduleEditor(selectedTask)}
               >
-                编辑排程
+                编辑排期
               </button>
             </div>
           </div>
@@ -2899,11 +2963,11 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               <div className="task-modal-body custom-scrollbar">
                 {/* Title */}
                 <div className="task-field-group">
-                  <label className="task-label">任务标题</label>
+                  <label className="task-label">标题</label>
                   <input
                     type="text"
                     className="task-input-title"
-                    placeholder="准备做什么？"
+                    placeholder="做什么？"
                     value={editTitle}
                     onChange={e => setEditTitle(e.target.value)}
                   />
@@ -2911,10 +2975,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
 
                 {/* Description */}
                 <div className="task-field-group">
-                  <label className="task-label">任务描述</label>
+                  <label className="task-label">描述</label>
                   <textarea
                     className="task-input-desc custom-scrollbar"
-                    placeholder="添加详细描述..."
+                    placeholder="详情..."
                     value={editDescription}
                     onChange={e => setEditDescription(e.target.value)}
                   />
@@ -2951,7 +3015,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                           className={`subtask-text ${subtask.completed ? 'completed' : ''}`}
                           value={subtask.title}
                           onChange={e => handleUpdateEditSubtask(subtask.id, { title: e.target.value })}
-                          placeholder="子任务名称"
+                          placeholder="子任务标题"
                         />
                         <button
                           className="subtask-delete-btn"
@@ -2975,8 +3039,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   <div className="task-row-full">
                     <label className="task-section-label">
                       <span className="material-symbols-outlined text-gray-400 text-[18px]">flag</span>
-                      优先级
-                    </label>
+                      优先级</label>
                     <div className="priority-grid">
                       {[
                         { val: 'p0', label: 'P0', class: 'p0' },
@@ -3033,7 +3096,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     <div className="periodicity-toggle-row">
                       <label className="task-section-label mb-0">
                         <span className="material-symbols-outlined text-gray-400 text-[18px]">update</span>
-                        周期性任务
+                        周期重复
                       </label>
                       <label className="periodicity-switch">
                         <input
@@ -3043,7 +3106,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                           onChange={e => setIsEditRecurring(e.target.checked)}
                         />
                         <div className="switch-slider"></div>
-                        <span className="switch-label-text">{isEditRecurring ? '已启用' : '未启用'}</span>
+                        <span className="switch-label-text">{isEditRecurring ? '开启' : '关闭'}</span>
                       </label>
                     </div>
 
@@ -3051,7 +3114,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       <div className="periodicity-panel">
                         {/* Frequency */}
                         <div className="periodicity-row">
-                          <span className="periodicity-label">重复频率</span>
+                          <span className="periodicity-label">频率</span>
                           <div className="periodicity-controls">
                             <span className="text-sm">每</span>
                             <input
@@ -3066,17 +3129,17 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                               value={editPeriodicity.strategy}
                               onChange={e => setEditPeriodicity({ ...editPeriodicity, strategy: e.target.value })}
                             >
-                              <option value="day">天 (Days)</option>
-                              <option value="week">周 (Weeks)</option>
-                              <option value="month">月 (Months)</option>
-                              <option value="year">年 (Years)</option>
+                              <option value="day">天</option>
+                              <option value="week">周</option>
+                              <option value="month">月</option>
+                              <option value="year">年</option>
                             </select>
                           </div>
                         </div>
 
                         {/* Start Date */}
                         <div className="periodicity-row">
-                          <span className="periodicity-label">开始时间</span>
+                          <span className="periodicity-label">开始日期</span>
                           <div className="flex gap-2 w-full">
                             <input
                               type="date"
@@ -3105,7 +3168,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 checked={editPeriodicity.end_rule === 'never'}
                                 onChange={() => setEditPeriodicity({ ...editPeriodicity, end_rule: 'never' })}
                               />
-                              <span>永不结束</span>
+                              <span>永不</span>
                             </label>
 
                             <label className="radio-row">
@@ -3116,7 +3179,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 checked={editPeriodicity.end_rule === 'date'}
                                 onChange={() => setEditPeriodicity({ ...editPeriodicity, end_rule: 'date' })}
                               />
-                              <span>于指定日期</span>
+                              <span>直到日期</span>
                               <input
                                 type="date"
                                 className="input-sm ml-2"
@@ -3134,7 +3197,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                 checked={editPeriodicity.end_rule === 'count'}
                                 onChange={() => setEditPeriodicity({ ...editPeriodicity, end_rule: 'count' })}
                               />
-                              <span>发生次数后</span>
+                              <span>之后</span>
                               <div className="flex items-center gap-2 ml-2">
                                 <input
                                   type="number"
@@ -3143,7 +3206,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                                   value={editPeriodicity.end_count || 10}
                                   onChange={e => setEditPeriodicity({ ...editPeriodicity, end_count: parseInt(e.target.value) || 1 })}
                                 />
-                                <span className="text-xs text-gray-500">次</span>
+                                <span className="text-xs text-gray-500">Times</span>
                               </div>
                             </label>
                           </div>
@@ -3155,7 +3218,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   {/* Scheduled Time - Row */}
                   <div className="task-edit-row">
                     <div className="task-edit-form-group">
-                      <label>开始排期</label>
+                      <label>Start Time</label>
                       <input
                         className="task-edit-input"
                         type="datetime-local"
@@ -3164,7 +3227,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       />
                     </div>
                     <div className="task-edit-form-group">
-                      <label>截止日期 (Deadline)</label>
+                      <label>Deadline</label>
                       <input
                         className="task-edit-input"
                         type="date"
@@ -3173,7 +3236,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                       />
                     </div>
                     <div className="task-edit-form-group">
-                      <label>预计时间（分钟）</label>
+                      <label>Estimate (mins)</label>
                       <input
                         className="task-edit-input"
                         type="number"
@@ -3188,34 +3251,34 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 <div className="task-modal-footer">
                   <button className="btn-delete" onClick={handleDeleteTask}>
                     <span className="material-symbols-outlined text-[18px]">delete</span>
-                    删除任务
+                    Delete
                   </button>
 
                   <div className="footer-actions">
                     <button className="btn-cancel" onClick={handleCloseEditModal}>
-                      取消
+                      Cancel
                     </button>
                     <button className="btn-save" onClick={handleSaveEditModal}>
                       <span className="material-symbols-outlined text-[20px]">save</span>
-                      保存修改
+                      Save
                     </button>
                   </div>
                 </div>
 
-                {/* 删除确认对话框 */}
+                {/* 删锟斤拷确锟较对伙拷锟斤拷 */}
                 {isDeleteConfirmOpen && (
                   <div className="delete-confirm-overlay">
                     <div className="delete-confirm-modal">
-                      <div className="delete-confirm-title">确认删除</div>
+                      <div className="delete-confirm-title">Confirm Delete</div>
                       <div className="delete-confirm-content">
-                        确定要删除任务 "{editingTask.title}" 吗？此操作不可恢复。
+                        Are you sure you want to delete task "{editingTask.title}"? This cannot be undone.
                       </div>
                       <div className="delete-confirm-footer">
                         <button className="delete-confirm-cancel" onClick={handleCancelDeleteTask}>
-                          取消
+                          Cancel
                         </button>
                         <button className="delete-confirm-delete" onClick={handleConfirmDeleteTask}>
-                          确定
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -3227,13 +3290,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         )
       }
 
-      {/* 标签编辑器 */}
+      {/* 锟斤拷签锟洁辑锟斤拷 */}
       {
         isTagsEditorOpen && editingTagsTask && (
           <div className="tags-editor-overlay">
             <div className="tags-editor">
               <div className="tags-editor-header">
-                <h3>编辑标签 - {editingTagsTask.title}</h3>
+                <h3>Edit Tags - {editingTagsTask.title}</h3>
                 <button
                   className="tags-editor-close"
                   onClick={handleCloseTagsEditor}
@@ -3247,7 +3310,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
               <div className="tags-editor-content">
                 <div className="tags-editor-form">
                   <div className="tags-editor-form-group">
-                    <label>标签列表</label>
+                    <label>Tags List</label>
                     <div className="tags-editor-tags-list">
                       {tagsEditorTags.map((tag, index) => (
                         <span key={index} className="tags-editor-tag-item">
@@ -3261,17 +3324,17 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         </span>
                       ))}
                       {tagsEditorTags.length === 0 && (
-                        <div className="tags-editor-empty">暂无标签，添加一个吧</div>
+                        <div className="tags-editor-empty">No tags, add one below</div>
                       )}
                     </div>
                   </div>
                   <div className="tags-editor-form-group">
-                    <label>添加新标签</label>
+                    <label>Add New Tag</label>
                     <div className="tags-editor-input-group">
                       <input
                         type="text"
                         className="tags-editor-input"
-                        placeholder="输入标签名称，按Enter添加"
+                        placeholder="Enter tag name (Enter)"
                         value={tagsEditorInput}
                         onChange={(e) => setTagsEditorInput(e.target.value)}
                         onKeyPress={(e) => {
@@ -3284,7 +3347,7 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                         className="tags-editor-add-btn"
                         onClick={handleAddTag}
                       >
-                        添加
+                        Add
                       </button>
                     </div>
                   </div>
@@ -3295,13 +3358,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                   className="tags-editor-cancel-btn"
                   onClick={handleCloseTagsEditor}
                 >
-                  取消
+                  Cancel
                 </button>
                 <button
                   className="tags-editor-save-btn"
                   onClick={handleSaveTags}
                 >
-                  保存
+                  Save
                 </button>
               </div>
             </div>
@@ -3309,13 +3372,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
         )
       }
 
-      {/* 排程编辑器 */}
+      {/* 锟脚程编辑锟斤拷 */}
       {
         isScheduleEditorOpen && editingScheduleTask && (
           <div className="schedule-editor-overlay">
             <div className="schedule-editor">
               <div className="schedule-editor-header">
-                <h3>编辑排程 - {editingScheduleTask.title}</h3>
+                <h3>Edit Schedule - {editingScheduleTask.title}</h3>
                 <button
                   className="schedule-editor-close"
                   onClick={handleCloseScheduleEditor}
@@ -3334,12 +3397,12 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                 )}
                 <div className="schedule-editor-form">
                   <div className="schedule-editor-form-group">
-                    <label htmlFor="estimate-min">预计时间（分钟）</label>
+                    <label htmlFor="estimate-min">Estimate (mins)</label>
                     <input
                       type="number"
                       id="estimate-min"
                       className="schedule-editor-input"
-                      placeholder="输入预计时间（1-1440）"
+                      placeholder="Estimate time (1-1440 mins)"
                       value={scheduleEditorEstimateMin}
                       onChange={(e) => setScheduleEditorEstimateMin(e.target.value)}
                       min="1"
@@ -3347,20 +3410,20 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     />
                   </div>
                   <div className="schedule-editor-form-group">
-                    <label htmlFor="scheduled-end">结束时间</label>
+                    <label htmlFor="scheduled-end">Scheduled End</label>
                     {editingScheduleTask.scheduled_start ? (
                       <input
                         type="time"
                         id="scheduled-end"
                         className="schedule-editor-input"
-                        placeholder="选择结束时间"
+                        placeholder="Select end time"
                         value={scheduleEditorScheduledEnd}
                         onChange={(e) => setScheduleEditorScheduledEnd(e.target.value)}
-                        step="300" /* 5分钟步进 */
+                        step="300" /* 5锟斤拷锟接诧拷锟斤拷 */
                       />
                     ) : (
                       <div className="schedule-editor-notice">
-                        此任务尚未设置开始时间，无法设置结束时间
+                        Task has no start time set. Cannot schedule end time.
                       </div>
                     )}
                   </div>
@@ -3370,13 +3433,13 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
                     className="schedule-editor-cancel-btn"
                     onClick={handleCloseScheduleEditor}
                   >
-                    取消
+                    Cancel
                   </button>
                   <button
                     className="schedule-editor-save-btn"
                     onClick={handleSaveSchedule}
                   >
-                    保存
+                    Save
                   </button>
                 </div>
               </div>
@@ -3384,10 +3447,10 @@ function Home({ hasVault, onSelectVault, vaultRoot }: HomeProps) {
           </div>
         )
       }
-      <AiSettingsModal />
       <SmartAddModal />
     </>
   );
-}
+
+};
 
 export default Home;

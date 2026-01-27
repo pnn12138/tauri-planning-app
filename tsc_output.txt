@@ -1,0 +1,46 @@
+src/Home.tsx(1718,9): error TS17014: JSX fragment has no corresponding closing tag.
+src/Home.tsx(2418,28): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(2418,67): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2533,28): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(2533,75): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2569,28): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(2569,75): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2605,28): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(2605,75): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2673,16): error TS17008: JSX element 'h3' has no corresponding closing tag.
+src/Home.tsx(2673,32): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2717,20): error TS17008: JSX element 'label' has no corresponding closing tag.
+src/Home.tsx(2717,39): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2905,68): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2915,70): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2925,7): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3008,56): error TS1003: Identifier expected.
+src/Home.tsx(3008,57): error TS1002: Unterminated string literal.
+src/Home.tsx(3010,25): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3012,31): error TS17002: Expected corresponding JSX closing tag for 'div'.
+src/Home.tsx(3013,23): error TS1005: ')' expected.
+src/Home.tsx(3014,23): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3094,94): error TS1005: ':' expected.
+src/Home.tsx(3094,99): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3104,34): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(3104,66): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3127,32): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(3127,79): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3167,36): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(3167,54): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3185,36): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(3185,54): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3194,40): error TS17008: JSX element 'span' has no corresponding closing tag.
+src/Home.tsx(3194,86): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3206,28): error TS17008: JSX element 'label' has no corresponding closing tag.
+src/Home.tsx(3206,47): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3273,11): error TS1005: ')' expected.
+src/Home.tsx(3275,7): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3316,26): error TS17008: JSX element 'label' has no corresponding closing tag.
+src/Home.tsx(3316,46): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3392,28): error TS1003: Identifier expected.
+src/Home.tsx(3394,22): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(3435,11): error TS1003: Identifier expected.
+src/Home.tsx(3436,8): error TS1005: '}' expected.
+src/Home.tsx(3437,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3440,1): error TS1005: '</' expected.

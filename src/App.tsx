@@ -13,6 +13,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import ExplorerPanel from "./features/explorer/ExplorerPanel";
 import MarkdownTabView from "./features/editor/MarkdownTabView";
 import WebTabView from "./features/web/WebTabView";
+import TaskDashboard from "./features/task-dashboard/TaskDashboard";
 import { deleteEntry, renameMarkdown, scanVault } from "./features/explorer/explorer.actions";
 import { resetExplorerState, useExplorerStore } from "./features/explorer/explorer.store";
 import PluginsPanel from "./features/plugins/PluginsPanel";
@@ -44,7 +45,7 @@ import { setSmartAddOpen, setSettingsOpen, useAiStore, toggleChat } from "./feat
 import AiSidebar from "./features/ai/AiSidebar";
 import AiChatView from "./features/ai/AiChatView";
 import AiChatPanel from "./features/ai/AiChatPanel";
-import { AiSettingsModal } from "./features/ai/AiSettingsModal";
+import { AiSettingsPanel } from "./features/ai/AiSettingsPanel";
 
 import "./App.css";
 
@@ -68,7 +69,7 @@ async function invokeApi<T>(command: string, args?: Record<string, unknown>) {
 
 
 function getVaultDisplayName(vaultRoot: string | null) {
-  if (!vaultRoot) return "No vault selected";
+  if (!vaultRoot) return "未选择库";
   let normalized = vaultRoot;
   if (normalized.startsWith("\\\\?\\")) {
     normalized = normalized.slice(4);
@@ -153,7 +154,7 @@ function App() {
       mainWindowRef.current = windowRef;
       windowRef.startDragging().catch((error) => {
         setStatusKind("error");
-        setStatus(`Drag failed: ${String(error)}`);
+        setStatus(`拖拽失败: ${String(error)}`);
       });
     },
     [isTauriRuntime]
@@ -167,6 +168,7 @@ function App() {
   const webByTab = useWebStore((state) => state.webByTab);
   const activeWebState = activeTab?.type === "web" ? webByTab[activeTabId] ?? null : null;
   const { isChatOpen, chatMode } = useAiStore();
+  const { isSettingsOpen } = useAiStore();
 
   const handleOpenWebTab = useCallback(
     (url: string, activate = true) => {
@@ -179,13 +181,13 @@ function App() {
     async (path: string, activate = true) => {
       if (isSaving) {
         setStatusKind("info");
-        setStatus("Save in progress. Please wait.");
+        setStatus("正在保存，请稍候。");
         return;
       }
 
       if (activeMarkdownTab && activeEditorState?.dirty && activeMarkdownTab.filePath !== path) {
         const proceed = window.confirm(
-          "You have unsaved changes. Discard them and open another file?"
+          "您有未保存的更改。是否放弃更改并打开另一个文件？"
         );
         if (!proceed) return;
       }
@@ -240,7 +242,7 @@ function App() {
       const normalized = normalizeAddressInput(value);
       if (!normalized) {
         setStatusKind("info");
-        setStatus("Enter a URL or search keyword.");
+        setStatus("输入 URL 或搜索关键词。");
         return;
       }
       setIsEditingAddress(false);
@@ -347,7 +349,7 @@ function App() {
             ? `\n- ... (+${dirtyTabs.length - dirtyLinesMax})`
             : "";
         const proceed = window.confirm(
-          `Warning: the following open files have unsaved changes. Deleting will discard them:\n${dirtyLines}${dirtyMore}\n\nContinue?`
+          `警告：以下打开的文件有未保存的更改。删除将丢弃它们：\n${dirtyLines}${dirtyMore}\n\n继续吗？`
         );
         if (!proceed) return;
       }
@@ -429,22 +431,23 @@ function App() {
   }, [refreshExplorer]);
 
   // Check for legacy data when vault is selected
-  useEffect(() => {
-    if (!isTauriRuntime || !vaultRoot) return;
+  // Check for legacy data when vault is selected
+  // useEffect(() => {
+  //   if (!isTauriRuntime || !vaultRoot) return;
 
-    const check = async () => {
-      try {
-        const [hasDb, hasFiles] = await checkLegacyData();
-        if (hasDb || hasFiles) {
-          setShowMigrationModal(true);
-        }
-      } catch (e) {
-        console.error("Failed to check legacy data:", e);
-      }
-    };
+  //   const check = async () => {
+  //     try {
+  //       const [hasDb, hasFiles] = await checkLegacyData();
+  //       if (hasDb || hasFiles) {
+  //         setShowMigrationModal(true);
+  //       }
+  //     } catch (e) {
+  //       console.error("Failed to check legacy data:", e);
+  //     }
+  //   };
 
-    check();
-  }, [isTauriRuntime, vaultRoot]);
+  //   check();
+  // }, [isTauriRuntime, vaultRoot]);
 
   const handleOpenFile = useCallback(
     async (path: string) => {
@@ -461,7 +464,7 @@ function App() {
   useEffect(() => {
     registerCoreCommand({
       key: "core:select-vault",
-      title: "Select Vault",
+      title: "选择库",
       source: "core",
       run: async () => {
         await handleSelectVault();
@@ -469,25 +472,25 @@ function App() {
     });
     registerCoreCommand({
       key: "core:open-plugins",
-      title: "Open Plugins",
+      title: "打开插件",
       source: "core",
       run: () => setIsPluginsOpen(true),
     });
     registerCoreCommand({
       key: "core:open-command-palette",
-      title: "Open Command Palette",
+      title: "打开命令面板",
       source: "core",
       run: () => setIsCommandPaletteOpen(true),
     });
     registerCoreCommand({
       key: "core:ai-settings",
-      title: "AI Settings",
+      title: "AI 设置",
       source: "core",
       run: () => setSettingsOpen(true),
     });
     registerCoreCommand({
       key: "core:smart-add",
-      title: "Smart Add Tasks",
+      title: "智能添加任务",
       source: "core",
       run: () => setSmartAddOpen(true),
     });
@@ -617,19 +620,19 @@ function App() {
                 onClick={() => {
                   if (activeTab?.type !== "web") {
                     setStatusKind("info");
-                    setStatus("No web tab is active.");
+                    setStatus("没有活动的 Web 标签。");
                     return;
                   }
                   if (!canGoBack) {
                     setStatusKind("info");
-                    setStatus("No back history for this tab.");
+                    setStatus("此标签没有后退历史。");
                     return;
                   }
                   handleBack();
                 }}
                 data-tauri-drag-region="false"
-                aria-label="Back"
-                title="Back"
+                aria-label="后退"
+                title="后退"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M10.5 3 5.5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -641,19 +644,19 @@ function App() {
                 onClick={() => {
                   if (activeTab?.type !== "web") {
                     setStatusKind("info");
-                    setStatus("No web tab is active.");
+                    setStatus("没有活动的 Web 标签。");
                     return;
                   }
                   if (!canGoForward) {
                     setStatusKind("info");
-                    setStatus("No forward history for this tab.");
+                    setStatus("此标签没有前进历史。");
                     return;
                   }
                   handleForward();
                 }}
                 data-tauri-drag-region="false"
-                aria-label="Forward"
-                title="Forward"
+                aria-label="前进"
+                title="前进"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M5.5 3 10.5 8l-5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -665,14 +668,14 @@ function App() {
                 onClick={() => {
                   if (activeTab?.type !== "web") {
                     setStatusKind("info");
-                    setStatus("No web tab is active.");
+                    setStatus("没有活动的 Web 标签。");
                     return;
                   }
                   handleReload();
                 }}
                 data-tauri-drag-region="false"
-                aria-label="Reload"
-                title="Reload"
+                aria-label="重新加载"
+                title="重新加载"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M12.5 8a4.5 4.5 0 1 1-2-3.7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -698,11 +701,11 @@ function App() {
               onBlur={() => setIsEditingAddress(false)}
               spellCheck={false}
               data-tauri-drag-region="false"
-              aria-label="Address"
+              aria-label="地址"
             />
             {addressIsLoading && (
               <span className="address-status" aria-hidden="true">
-                Loading...
+                加载中...
               </span>
             )}
           </form>
@@ -719,12 +722,12 @@ function App() {
                     await windowRef.minimize();
                   } catch (error) {
                     setStatusKind("error");
-                    setStatus(`Minimize failed: ${String(error)}`);
+                    setStatus(`最小化失败: ${String(error)}`);
                   }
                 }}
                 data-tauri-drag-region="false"
-                aria-label="Minimize"
-                title="Minimize"
+                aria-label="最小化"
+                title="最小化"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path
@@ -748,12 +751,12 @@ function App() {
                     setIsMaximized(await windowRef.isMaximized());
                   } catch (error) {
                     setStatusKind("error");
-                    setStatus(`Maximize failed: ${String(error)}`);
+                    setStatus(`最大化失败: ${String(error)}`);
                   }
                 }}
                 data-tauri-drag-region="false"
-                aria-label={isMaximized ? "Restore" : "Maximize"}
-                title={isMaximized ? "Restore" : "Maximize"}
+                aria-label={isMaximized ? "还原" : "最大化"}
+                title={isMaximized ? "还原" : "最大化"}
               >
                 {isMaximized ? (
                   <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -798,12 +801,12 @@ function App() {
                     await windowRef.close();
                   } catch (error) {
                     setStatusKind("error");
-                    setStatus(`Close failed: ${String(error)}`);
+                    setStatus(`关闭失败: ${String(error)}`);
                   }
                 }}
                 data-tauri-drag-region="false"
-                aria-label="Close"
-                title="Close"
+                aria-label="关闭"
+                title="关闭"
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path
@@ -830,7 +833,7 @@ function App() {
               >
                 <span className="tab-title">
                   {tab.type === "web" && webByTab[tab.id]?.loading
-                    ? "Loading..."
+                    ? "加载中..."
                     : tab.title}
                 </span>
                 {tab.type !== "home" && (
@@ -862,8 +865,8 @@ function App() {
                 type="button"
                 className={`icon-button ${sidebarOpen ? "is-active" : ""}`}
                 onClick={() => setSidebarOpen((prev) => !prev)}
-                aria-label={sidebarOpen ? "Hide files" : "Show files"}
-                title={sidebarOpen ? "Hide files" : "Show files"}
+                aria-label={sidebarOpen ? "隐藏文件列表" : "显示文件列表"}
+                title={sidebarOpen ? "隐藏文件列表" : "显示文件列表"}
                 data-tauri-drag-region="false"
               >
                 <span className="icon-bars" aria-hidden="true" />
@@ -872,8 +875,8 @@ function App() {
                 type="button"
                 className="icon-button"
                 onClick={() => setIsCommandPaletteOpen(true)}
-                aria-label="Open command palette"
-                title="Commands (Ctrl/Cmd+P)"
+                aria-label="打开命令面板"
+                title="命令面板 (Ctrl/Cmd+P)"
                 data-tauri-drag-region="false"
               >
                 ⌘P
@@ -882,18 +885,18 @@ function App() {
                 type="button"
                 className="icon-button"
                 onClick={() => setIsPluginsOpen(true)}
-                aria-label="Open plugins"
-                title="Plugins"
+                aria-label="打开插件"
+                title="插件"
                 data-tauri-drag-region="false"
               >
-                Plugins
+                插件
               </button>
               <button
                 type="button"
                 className={`icon-button ${isChatOpen ? "is-active" : ""}`}
                 onClick={() => toggleChat()}
-                aria-label="AI Chat"
-                title="AI Chat"
+                aria-label="AI 对话"
+                title="AI 对话"
                 data-tauri-drag-region="false"
               >
                 🤖
@@ -910,7 +913,7 @@ function App() {
                     type="button"
                     className="status-close"
                     onClick={() => setStatus(null)}
-                    aria-label="Dismiss status"
+                    aria-label="关闭状态提醒"
                     data-tauri-drag-region="false"
                   >
                     x
@@ -923,11 +926,11 @@ function App() {
       </header>
 
       <div className="workspace" style={{ paddingTop: `${workspacePaddingTop}px` }}>
-        {isChatOpen && chatMode === 'fullscreen' ? (
-          // AI Chat Fullscreen Mode
+        {(isChatOpen || isSettingsOpen) && chatMode === 'fullscreen' ? (
+          // AI Chat Fullscreen Mode (or Settings)
           <>
             <AiSidebar />
-            <AiChatView />
+            {isSettingsOpen ? <AiSettingsPanel /> : <AiChatView />}
           </>
         ) : (
           // Normal Mode (with optional panel)
@@ -964,11 +967,17 @@ function App() {
                 <MarkdownTabView tabId={activeTabId} />
               )}
 
+              {activeTab?.type === "task" && (
+                <TaskDashboard taskId={activeTab.taskId} />
+              )}
+
               <WebTabView tabId={activeTabId} />
             </main>
 
-            {/* AI Chat Panel (right sidebar) */}
-            {isChatOpen && chatMode === 'panel' && <AiChatPanel />}
+            {/* AI Chat Panel or Settings (right sidebar) */}
+            {(isChatOpen || isSettingsOpen) && chatMode === 'panel' && (
+              isSettingsOpen ? <AiSettingsPanel /> : <AiChatPanel />
+            )}
           </>
         )}
       </div>
@@ -986,7 +995,6 @@ function App() {
 
       <CommandPalette open={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
       {isPluginsOpen && <PluginsPanel onClose={() => setIsPluginsOpen(false)} />}
-      <AiSettingsModal />
 
     </div>
   );
@@ -994,17 +1002,17 @@ function App() {
 
 function formatError(error: unknown) {
   if (typeof error === "string") {
-    return `UnexpectedError: ${error}`;
+    return `意外错误: ${error}`;
   }
   if (!error || typeof error !== "object") {
-    return "UnexpectedError: Unexpected error.";
+    return "意外错误: 意外错误。";
   }
   const err = error as ApiError;
   if (!err.code || !err.message) {
     try {
-      return `UnexpectedError: ${JSON.stringify(error)}`;
+      return `意外错误: ${JSON.stringify(error)}`;
     } catch (_err) {
-      return "UnexpectedError: Unexpected error.";
+      return "意外错误: 意外错误。";
     }
   }
   const details = err.details;
