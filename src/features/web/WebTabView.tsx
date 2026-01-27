@@ -133,7 +133,7 @@ export default function WebTabView(props: { tabId: string }) {
 
         const mainWindow = mainWindowRef.current ?? getCurrentWindow();
         mainWindowRef.current = mainWindow;
-        
+
         // 确保webviewLabel的唯一性和正确性
         const webview = new Webview(mainWindow, tab.webviewLabel, {
           url: desiredUrl,
@@ -306,11 +306,11 @@ export default function WebTabView(props: { tabId: string }) {
   return (
     <section className="webview-pane">
       {!isTauriRuntime && (
-        <div className="placeholder">Web tabs require the Tauri runtime.</div>
+        <div className="placeholder">Web 标签需要 Tauri 运行时。</div>
       )}
       {error && (
         <div className="webview-error">
-          <div className="webview-error-title">404 / Load failed</div>
+          <div className="webview-error-title">加载失败</div>
           <div className="webview-error-body">{error}</div>
           <button
             type="button"
@@ -325,7 +325,7 @@ export default function WebTabView(props: { tabId: string }) {
             }}
             data-tauri-drag-region="false"
           >
-            Retry
+            重试
           </button>
         </div>
       )}

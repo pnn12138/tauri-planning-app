@@ -1,0 +1,72 @@
+/* Carousel Styles */
+.task-carousel-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.carousel-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 1;
+    gap: 16px;
+    position: relative;
+    width: 100%;
+}
+
+.carousel-card-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 80px;
+    max-height: 200px;
+    overflow: hidden;
+}
+
+.carousel-card-container .task-card-wrapper {
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 0;
+}
+
+.carousel-card-container .task-card {
+    width: 100%;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.carousel-nav-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.carousel-nav-btn:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.carousel-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.carousel-nav-btn.prev {
+    margin-right: -8px;
+    /* Pull closer to card */
+}
+
+.carousel-nav-btn.next {
+    margin-left: -8px;
+    /* Pull closer to card */
+}

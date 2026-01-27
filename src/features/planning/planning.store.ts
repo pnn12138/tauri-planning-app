@@ -90,7 +90,7 @@ export function resetPlanningStoreState() {
 export function updateKanban(kanban: TodayDTO['kanban']) {
   setPlanningStoreState((prev) => {
     if (!prev.todayData) return prev;
-    
+
     return {
       ...prev,
       todayData: {
@@ -132,30 +132,31 @@ export function saveSnapshot() {
 function removeTaskFromLocalState(taskId: string) {
   setPlanningStoreState((prev) => {
     if (!prev.todayData) return prev;
-    
+
     const updatedTodayData = { ...prev.todayData };
-    
+
+    // Remove from all kanban columns
     // Remove from all kanban columns
     updatedTodayData.kanban = {
-      backlog: updatedTodayData.kanban.backlog.filter(task => task.id !== taskId),
       todo: updatedTodayData.kanban.todo.filter(task => task.id !== taskId),
       doing: updatedTodayData.kanban.doing.filter(task => task.id !== taskId),
+      verify: updatedTodayData.kanban.verify.filter(task => task.id !== taskId),
       done: updatedTodayData.kanban.done.filter(task => task.id !== taskId),
     };
-    
+
     // Remove from timeline
     updatedTodayData.timeline = updatedTodayData.timeline.filter(task => task.id !== taskId);
-    
+
     // Update currentDoing if it's the removed task
     if (updatedTodayData.currentDoing && updatedTodayData.currentDoing.id === taskId) {
       updatedTodayData.currentDoing = undefined;
     }
-    
+
     // Update currentTimer if it's for the removed task
     if (updatedTodayData.currentTimer && updatedTodayData.currentTimer.task_id === taskId) {
       updatedTodayData.currentTimer = undefined;
     }
-    
+
     return {
       ...prev,
       todayData: updatedTodayData,
@@ -195,7 +196,7 @@ export async function loadTodayData(today: string) {
     isLoading: true,
     error: null,
   }));
-  
+
   try {
     const data = await planningApi.planningListToday(today);
     setPlanningStoreState((prev) => ({
@@ -211,14 +212,14 @@ export async function loadTodayData(today: string) {
       isLoading: false,
       error: errorObj,
     }));
-    
+
     // Handle specific error codes
     const errorCode = (error as any)?.code;
     if (errorCode === 'NotFound' || errorCode === 'Conflict' || errorCode === 'StaleState') {
       // Auto-refresh on these errors with shorter delay
       setTimeout(() => loadTodayData(today), 500);
     }
-    
+
     throw error;
   }
 }
@@ -227,15 +228,15 @@ export async function loadTodayData(today: string) {
 export function getTaskById(taskId: string): Task | undefined {
   const state = getPlanningStoreState();
   if (!state.todayData) return undefined;
-  
+
   // Search in all kanban columns
   const allTasks = [
-    ...state.todayData.kanban.backlog,
     ...state.todayData.kanban.todo,
     ...state.todayData.kanban.doing,
+    ...state.todayData.kanban.verify,
     ...state.todayData.kanban.done,
   ];
-  
+
   return allTasks.find(task => task.id === taskId);
 }
 
@@ -305,16 +306,16 @@ export function updateUIState(partialUIState: Partial<PlanningUIState>) {
       },
     },
   }));
-  
+
   // Save to backend with debounce
   const vaultId = getPlanningStoreState().currentVaultId;
   if (!vaultId) return;
-  
+
   // Clear existing timer
   if (uiStateSaveTimer) {
     clearTimeout(uiStateSaveTimer);
   }
-  
+
   // Set new timer (300ms debounce)
   uiStateSaveTimer = setTimeout(() => {
     saveUIStateToBackend(vaultId);
@@ -337,21 +338,21 @@ export async function createTask(input: any) {
   if (Object.values(getPlanningStoreState().inFlightByTaskId).some(inFlight => inFlight)) {
     throw new Error('有任务正在处理中，请稍后再试');
   }
-  
+
   saveSnapshot();
-  
+
   try {
     // 调用API创建任务，获取返回的完整Task对象
     const newTask = await planningApi.planningCreateTask(input);
-    
+
     // 局部插入：将新任务添加到对应看板列
     setPlanningStoreState((prev) => {
       if (!prev.todayData) return prev;
-      
+
       const updatedKanban = { ...prev.todayData.kanban };
       const status = newTask.status as keyof typeof updatedKanban;
       updatedKanban[status] = [...updatedKanban[status], newTask];
-      
+
       // 如果有计划日期且是今天，添加到时间线
       const updatedTimeline = prev.todayData.timeline;
       if (newTask.scheduled_start) {
@@ -360,7 +361,7 @@ export async function createTask(input: any) {
           updatedTimeline.push(newTask);
         }
       }
-      
+
       return {
         ...prev,
         todayData: {
@@ -370,7 +371,7 @@ export async function createTask(input: any) {
         },
       };
     });
-    
+
     // 后台触发一次refreshToday()兜底对齐
     setTimeout(() => {
       const state = getPlanningStoreState();
@@ -378,7 +379,7 @@ export async function createTask(input: any) {
         reloadTodayData(state.todayData.today);
       }
     }, 100);
-    
+
     return newTask;
   } catch (error) {
     rollback();
@@ -389,17 +390,17 @@ export async function createTask(input: any) {
 // Common error handling function
 function handleApiError(error: unknown, taskId: string | undefined, action: string) {
   const normalizedError = planningApi.normalizeError(error);
-  
+
   // Check if there's a modal open (simplified check)
   const hasModalOpen = document.querySelector('.modal.open') !== null;
-  
+
   if (normalizedError.code === 'NotFound' && taskId) {
     // Show toast: Task not found
     alert(`${action}失败：任务不存在或已被删除`);
-    
+
     // Remove task from local state immediately
     removeTaskFromLocalState(taskId);
-    
+
     // Refresh after a short delay, but not if there's a modal open
     if (!hasModalOpen) {
       const state = getPlanningStoreState();
@@ -415,7 +416,7 @@ function handleApiError(error: unknown, taskId: string | undefined, action: stri
     // Show toast: General error
     alert(`${action}失败：${normalizedError.message}`);
   }
-  
+
   throw error;
 }
 
@@ -424,10 +425,10 @@ export async function updateTask(input: any) {
   if (isTaskInFlight(input.id)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(input.id, true);
   saveSnapshot();
-  
+
   try {
     await planningApi.planningUpdateTask(input);
     // 后台触发一次refreshToday()兜底对齐
@@ -450,10 +451,10 @@ export async function markTaskDone(taskId: string) {
   if (isTaskInFlight(taskId)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(taskId, true);
   saveSnapshot();
-  
+
   try {
     await planningApi.planningMarkDone(taskId);
     // 后台触发一次refreshToday()兜底对齐
@@ -476,10 +477,10 @@ export async function reopenTask(taskId: string) {
   if (isTaskInFlight(taskId)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(taskId, true);
   saveSnapshot();
-  
+
   try {
     await planningApi.planningReopenTask(taskId);
     // 后台触发一次refreshToday()兜底对齐
@@ -502,10 +503,10 @@ export async function startTask(taskId: string) {
   if (isTaskInFlight(taskId)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(taskId, true);
   saveSnapshot();
-  
+
   try {
     await planningApi.planningStartTask(taskId);
     // 后台触发一次refreshToday()兜底对齐
@@ -528,10 +529,10 @@ export async function stopTask(taskId: string) {
   if (isTaskInFlight(taskId)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(taskId, true);
   saveSnapshot();
-  
+
   try {
     await planningApi.planningStopTask(taskId);
     // 后台触发一次refreshToday()兜底对齐
@@ -581,17 +582,17 @@ export async function deleteTask(taskId: string) {
   if (isTaskInFlight(taskId)) {
     throw new Error('该任务正在处理中，请稍后再试');
   }
-  
+
   setTaskInFlight(taskId, true);
   saveSnapshot();
-  
+
   try {
     // 乐观更新：先从本地状态中删除任务
     removeTaskFromLocalState(taskId);
-    
+
     // 调用API删除任务
     await planningApi.planningDeleteTask(taskId);
-    
+
     // 后台触发一次refreshToday()兜底对齐
     setTimeout(() => {
       const state = getPlanningStoreState();

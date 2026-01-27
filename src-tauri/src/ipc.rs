@@ -1,6 +1,6 @@
+use rusqlite::Error as RusqliteError;
 use serde::Serialize;
 use std::path::Path;
-use rusqlite::Error as RusqliteError;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ApiError {
@@ -8,6 +8,12 @@ pub struct ApiError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code, self.message)
+    }
 }
 
 #[derive(Serialize)]
@@ -130,3 +136,13 @@ impl From<serde_json::Error> for ApiError {
     }
 }
 
+// Implement From<std::io::Error> for ApiError so that ? can automatically convert
+impl From<std::io::Error> for ApiError {
+    fn from(err: std::io::Error) -> Self {
+        ApiError {
+            code: "IOError".to_string(),
+            message: format!("IO operation failed: {}", err),
+            details: Some(serde_json::json!({ "error": err.to_string() })),
+        }
+    }
+}

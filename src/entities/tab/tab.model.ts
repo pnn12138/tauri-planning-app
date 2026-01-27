@@ -1,4 +1,4 @@
-export type TabType = "home" | "markdown" | "web";
+export type TabType = "home" | "markdown" | "web" | "task";
 
 export type BaseTab = {
   id: string;
@@ -21,7 +21,12 @@ export type WebTab = BaseTab & {
   webviewLabel: string;
 };
 
-export type Tab = HomeTab | MarkdownTab | WebTab;
+export type TaskTab = BaseTab & {
+  type: "task";
+  taskId: string;
+};
+
+export type Tab = HomeTab | MarkdownTab | WebTab | TaskTab;
 
 export function isMarkdownTab(tab: Tab | null): tab is MarkdownTab {
   return Boolean(tab && tab.type === "markdown");

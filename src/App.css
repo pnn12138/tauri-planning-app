@@ -230,9 +230,18 @@ textarea {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
 }
 
 .top-bar {
@@ -250,7 +259,7 @@ textarea {
   z-index: 20;
 }
 
-.top-bar > * {
+.top-bar>* {
   position: relative;
   z-index: 1;
 }
@@ -673,6 +682,27 @@ button.ghost.is-danger {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  overflow: hidden;
+  /* Prevent pane itself from scrolling */
+}
+
+/* Week view specific layout override */
+.main-pane.view-mode-week {
+  display: flex;
+  flex-direction: row;
+}
+
+.view-mode-week .timeline-sidebar {
+  flex: 1;
+  min-width: 0;
+  /* Allow shrinking */
+}
+
+.view-mode-week .kanban-section {
+  flex: 0 0 380px;
+  /* Fixed width to accommodate cards properly */
+  min-width: 350px;
+  max-width: 420px;
 }
 
 .webview-pane {
@@ -1023,9 +1053,12 @@ button.ghost.is-danger {
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.8;
   }
@@ -1076,13 +1109,27 @@ button.ghost.is-danger {
 
 /* Timeline Sidebar */
 .timeline-sidebar {
-  width: 320px;
   background-color: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  flex-shrink: 0;
+  flex-grow: 1;
+  flex-shrink: 1;
+  flex-basis: 15%;
+  /* 默认占比30% */
+  min-width: 280px;
+  /* 最小宽度 */
+}
+
+/* Adjust timeline sidebar ratio for week view */
+.view-mode-week .timeline-sidebar {
+  flex-grow: 4;
+  flex-shrink: 1;
+  flex-basis: 80%;
+  /* 周视图占比80% */
+  min-width: 600px;
+  /* 周视图最小宽度 */
 }
 
 .timeline-header {
@@ -1090,9 +1137,13 @@ button.ghost.is-danger {
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   background-color: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(4px);
+}
+
+.timeline-header> :first-child {
+  margin-right: auto;
 }
 
 .timeline-schedule-info {
@@ -1138,6 +1189,87 @@ button.ghost.is-danger {
   background-color: rgba(37, 99, 235, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timeline-today-badge:hover {
+  background-color: rgba(37, 99, 235, 0.2);
+}
+
+/* Timeline View Toggle */
+.timeline-view-toggle {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  background-color: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.timeline-view-toggle:hover {
+  color: #1e293b;
+  background-color: #f1f5f9;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.timeline-view-toggle.active {
+  color: var(--primary);
+  background-color: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.timeline-view-toggle svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+/* Timeline Week View Placeholder */
+.timeline-week-view-placeholder {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  color: #64748b;
+  font-size: 14px;
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.timeline-week-view-message {
+  padding: 20px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Timeline Collapse Button */
+.timeline-collapse-btn {
+  padding: 4px;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timeline-collapse-btn:hover {
+  color: #1e293b;
+  background-color: #f1f5f9;
+}
+
+.timeline-collapse-btn.collapsed {
+  /* 折叠状态样式 */
+  /* 添加适当的视觉反馈 */
 }
 
 /* Timeline Content */
@@ -1147,6 +1279,7 @@ button.ghost.is-danger {
   padding: 16px;
   padding-top: 8px;
   position: relative;
+  height: 100%;
 }
 
 /* 回到现在按钮 */
@@ -1178,7 +1311,8 @@ button.ghost.is-danger {
 /* 时间轴分层 */
 .timeline-container {
   position: relative;
-  min-height: 1200px;
+  height: 100%;
+  min-height: auto;
 }
 
 .timeline-ticks-layer {
@@ -1187,7 +1321,7 @@ button.ghost.is-danger {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 .timeline-blocks-layer {
@@ -1196,7 +1330,7 @@ button.ghost.is-danger {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
+  z-index: 1;
 }
 
 /* 时间刻度 */
@@ -1209,12 +1343,13 @@ button.ghost.is-danger {
 /* 时间块基础样式 */
 .timeline-block {
   position: absolute;
-  left: 8px;
-  right: 8px;
-  padding: 8px;
+  left: 52px;
+  right: 12px;
+  padding: 6px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
+  overflow: hidden;
 }
 
 /* 已排期块样式 */
@@ -1222,6 +1357,7 @@ button.ghost.is-danger {
   background-color: #eff6ff;
   border-left: 2px solid var(--primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin: 2px 0;
 }
 
 .timeline-block.busy:hover {
@@ -1236,12 +1372,9 @@ button.ghost.is-danger {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.timeline-free-block:hover {
-  background-color: rgba(239, 246, 255, 0.6);
-  border-color: var(--primary);
-  transform: translateY(-1px);
+  padding: 6px;
+  margin: 2px 0;
+  border-radius: 8px;
 }
 
 .timeline-free-block-content {
@@ -1251,18 +1384,16 @@ button.ghost.is-danger {
 }
 
 .timeline-free-block-cta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
   font-weight: 500;
-  color: var(--primary);
+  color: #64748b;
   margin-bottom: 4px;
+  font-size: 11px;
 }
 
 .timeline-free-block-time {
   font-size: 10px;
   color: #94a3b8;
+  display: none;
 }
 
 /* 时间块内部结构 */
@@ -1292,7 +1423,8 @@ button.ghost.is-danger {
 
 .timeline-container {
   position: relative;
-  min-height: 1000px;
+  height: 100%;
+  min-height: auto;
 }
 
 /* Timeline Now Indicator */
@@ -1501,7 +1633,7 @@ button.ghost.is-danger {
 .timeline-event {
   position: absolute;
   top: 2px;
-  left: 8px;
+  left: 48px;
   right: 8px;
   padding: 8px;
   border-radius: 4px;
@@ -1590,11 +1722,26 @@ button.ghost.is-danger {
 
 /* Kanban Section */
 .kanban-section {
-  flex: 1;
+  flex-grow: 2;
+  flex-shrink: 1;
+  flex-basis: 70%;
+  /* 默认占比70% */
   display: flex;
   flex-direction: column;
   background-color: #f8fafc;
   min-height: 0;
+}
+
+/* Adjust kanban section ratio for week view */
+.view-mode-week .kanban-section {
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex-basis: 20%;
+  /* Match main-pane rule */
+  min-width: 0;
+  /* Required for scrollbar to appear */
+  display: flex;
+  flex-direction: column;
 }
 
 .kanban-header {
@@ -1704,6 +1851,38 @@ button.ghost.is-danger {
   overflow-x: auto;
 }
 
+/* Adjust kanban columns to be vertical in week view */
+.view-mode-week .kanban-columns {
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.view-mode-week .kanban-column {
+  flex: 0 0 auto;
+  min-width: auto;
+  width: 100%;
+  max-height: 300px;
+}
+
+.view-mode-week .kanban-tasks {
+  flex-direction: row;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 120px;
+  padding-bottom: 8px;
+  /* For scrollbar */
+}
+
+.view-mode-week .task-card {
+  width: 200px;
+  flex-shrink: 0;
+  margin-bottom: 0;
+  height: 100%;
+}
+
 .kanban-column {
   flex: 1;
   min-width: 0;
@@ -1771,20 +1950,62 @@ button.ghost.is-danger {
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 200px; /* 确保空列有足够的拖拽区域 */
+  min-height: 200px;
+  /* 确保空列有足够的拖拽区域 */
 }
 
 .task-card {
-  background-color: var(--surface);
+  background: #ffffff;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transition: all 0.2s ease;
+  overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* Carousel-specific card styling - single row layout */
+.task-carousel-container .task-card {
+  flex-direction: row;
+  align-items: center;
+  padding: 16px;
+  min-height: auto;
+}
+
+.task-carousel-container .task-card-content {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+}
+
+.task-carousel-container .task-card-header {
+  flex-shrink: 0;
   margin-bottom: 0;
+}
+
+.task-carousel-container .task-title {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+}
+
+.task-carousel-container .task-card-footer {
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+}
+
+/* Adjust task cards in week view */
+.view-mode-week .task-card {
+  height: auto;
+  min-height: 100px;
 }
 
 /* 拖拽占位元素 */
@@ -1817,11 +2038,9 @@ button.ghost.is-danger {
 
 .task-card-content {
   padding: 16px;
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: background-color 0.2s ease;
+  gap: 12px;
   cursor: grab;
 }
 
@@ -1891,10 +2110,7 @@ button.ghost.is-danger {
   border-radius: 4px;
 }
 
-.timeline-hour-line:hover {
-  background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
-}
+
 
 /* Drag Indicator */
 .timeline-drag-indicator {
@@ -1909,7 +2125,7 @@ button.ghost.is-danger {
 
 .timeline-drag-time {
   position: absolute;
-  left: -80px;
+  left: 8px;
   top: -12px;
   background-color: #ef4444;
   color: white;
@@ -1959,8 +2175,8 @@ button.ghost.is-danger {
 .timeline-placeholder {
   position: absolute;
   top: 2px;
-  left: 8px;
-  right: 8px;
+  left: 52px;
+  right: 12px;
   height: 60px;
   background-color: rgba(59, 130, 246, 0.1);
   border: 2px dashed #3b82f6;
@@ -1992,7 +2208,8 @@ button.ghost.is-danger {
   position: relative;
   margin-bottom: 8px;
   transition: all 0.2s ease;
-  min-height: 80px; /* 确保占位符准确保持空间 */
+  min-height: 80px;
+  /* 确保占位符准确保持空间 */
 }
 
 /* 拖拽中卡片的视觉增强 */
@@ -2014,13 +2231,13 @@ button.ghost.is-danger {
 }
 
 .task-card-footer {
-  padding: 8px 16px;
-  background-color: #f8fafc;
-  border-top: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 8px 16px;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
   cursor: pointer;
 }
 
@@ -2046,6 +2263,10 @@ button.ghost.is-danger {
   border-radius: 18px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
   overflow: hidden;
+  max-height: 85vh;
+  /* Limit height */
+  display: flex;
+  flex-direction: column;
 }
 
 .task-edit-modal-header {
@@ -2174,49 +2395,44 @@ button.ghost.is-danger {
 }
 
 .task-tag {
-  font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-right: 6px;
-  margin-bottom: 4px;
-  display: inline-block;
-}
-
-.task-priority {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-right: 6px;
-  margin-bottom: 4px;
-  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
   background-color: #e2e8f0;
   color: #475569;
 }
 
+.task-priority {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
 .task-priority.p0 {
-  background-color: rgba(225, 29, 72, 0.15);
-  color: #E11D48;
+  background-color: #ffe4e6;
+  color: #e11d48;
 }
 
 .task-priority.high,
 .task-priority.p1 {
-  background-color: rgba(242, 108, 108, 0.15);
-  color: #F26C6C;
+  background-color: #fee2e2;
+  color: #ef4444;
 }
 
 .task-priority.medium,
 .task-priority.p2 {
-  background-color: rgba(251, 191, 36, 0.25);
-  color: #F59E0B;
+  background-color: #fef3c7;
+  color: #d97706;
 }
 
 .task-priority.low,
 .task-priority.p3 {
-  background-color: rgba(77, 171, 77, 0.15);
-  color: #4DAB4D;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .task-tags {
@@ -2227,11 +2443,12 @@ button.ghost.is-danger {
 }
 
 .task-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #1e293b;
-  line-height: 1.4;
+  line-height: 1.5;
   margin: 0;
+  padding: 2px 0;
 }
 
 .task-card.active .task-title {
@@ -2259,6 +2476,12 @@ button.ghost.is-danger {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+}
+
+.task-header-left,
+.task-header-right {
+  display: flex;
+  align-items: center;
 }
 
 .task-card-avatar {
@@ -2363,9 +2586,12 @@ button.ghost.is-danger {
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
@@ -2376,6 +2602,188 @@ button.ghost.is-danger {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Filter Button */
+.dashboard-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #6b7280;
+}
+
+.dashboard-filter-btn:hover {
+  background-color: #f9fafb;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+/* Filter Panel */
+.dashboard-filter-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 80px 20px 20px 20px;
+}
+
+.dashboard-filter-panel {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  width: 320px;
+  max-width: 100%;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.dashboard-filter-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dashboard-filter-panel-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #111827;
+}
+
+.dashboard-filter-panel-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.dashboard-filter-panel-close:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.dashboard-filter-panel-content {
+  padding: 20px;
+}
+
+.dashboard-filter-section {
+  margin-bottom: 20px;
+}
+
+.dashboard-filter-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.dashboard-filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.dashboard-filter-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background-color: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #374151;
+}
+
+.dashboard-filter-tag.active {
+  background-color: #dbeafe;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+.dashboard-filter-tag:hover {
+  background-color: #e5e7eb;
+}
+
+.dashboard-filter-tag.active:hover {
+  background-color: #bfdbfe;
+}
+
+.dashboard-filter-tag-remove {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.dashboard-filter-priorities {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.dashboard-filter-priority {
+  padding: 6px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: white;
+  color: #6b7280;
+}
+
+.dashboard-filter-priority:hover {
+  background-color: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.dashboard-filter-priority.active {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+.dashboard-filter-priority.active:hover {
+  background-color: #2563eb;
+}
+
+.dashboard-filter-clear {
+  width: 100%;
+  padding: 8px 16px;
+  background-color: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #6b7280;
+}
+
+.dashboard-filter-clear:hover {
+  background-color: #e5e7eb;
+  color: #374151;
 }
 
 /* Tag colors */
@@ -2419,6 +2827,193 @@ button.ghost.is-danger {
   color: #991b1b;
 }
 
+/* Week View Styles */
+.timeline-week-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.timeline-week-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 0;
+  background-color: #f8fafc;
+  margin-left: 60px;
+  /* 与左侧时间刻度宽度匹配 */
+}
+
+.timeline-week-day-header {
+  flex: 1;
+  text-align: center;
+  padding: 12px 0;
+  font-weight: 600;
+  background-color: white;
+  border-right: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.timeline-week-day-header:last-child {
+  border-right: none;
+}
+
+.timeline-week-day-header.today {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 0;
+}
+
+.timeline-week-day-name {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.timeline-week-day-date {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.timeline-week-day-header.today .timeline-week-day-date {
+  color: #1d4ed8;
+}
+
+.timeline-week-content {
+  display: flex;
+  height: calc(100% - 80px);
+  position: relative;
+  background-color: white;
+  border-top: 1px solid #e2e8f0;
+}
+
+.timeline-week-time-scale {
+  width: 60px;
+  flex-shrink: 0;
+  border-right: 1px solid #e2e8f0;
+  margin-right: 0;
+  background-color: #f8fafc;
+}
+
+.timeline-week-time-item {
+  height: 8.333%;
+  /* 12小时 / 13刻度 */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 12px;
+  font-size: 12px;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  font-weight: 500;
+}
+
+.timeline-week-columns {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  background-color: transparent;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.timeline-week-column {
+  flex: 1;
+  background-color: white;
+  position: relative;
+  overflow: hidden;
+  border-right: 1px solid #e2e8f0;
+}
+
+.timeline-week-column:last-child {
+  border-right: none;
+}
+
+.timeline-week-column-divider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #e2e8f0;
+  z-index: 1;
+}
+
+.timeline-week-column-content {
+  height: 100%;
+  position: relative;
+  background-color: white;
+}
+
+/* Adjust timeline blocks for week view */
+.timeline-week-column .timeline-block {
+  left: 8px;
+  right: 8px;
+  width: calc(100% - 16px);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+.timeline-week-column .timeline-block.busy {
+  background-color: #eff6ff;
+  border-left: 3px solid var(--primary);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  margin: 2px 0;
+}
+
+.timeline-week-column .timeline-block.busy:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+
+.timeline-week-column .timeline-free-block {
+  background-color: rgba(248, 250, 252, 0.8);
+  border: 1px dashed #cbd5e1;
+  margin: 2px 0;
+  border-radius: 8px;
+}
+
+.timeline-week-column .timeline-free-block:hover {
+  background-color: rgba(241, 245, 249, 0.8);
+  border-color: #94a3b8;
+}
+
+.timeline-week-column .timeline-event {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+
+/* Hide timeline-ticks-layer in week view */
+.timeline-week-view .timeline-ticks-layer {
+  display: none;
+}
+
+/* Adjust drag indicator for week view */
+.timeline-week-view .timeline-drag-indicator {
+  left: 60px;
+  right: 0;
+}
+
+.timeline-week-view .timeline-drag-time {
+  left: -60px;
+  text-align: right;
+  padding-right: 12px;
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.timeline-week-view .timeline-drag-line {
+  left: 0;
+  right: 0;
+}
+
 /* Kanban Footer */
 .kanban-footer {
   padding: 8px 24px;
@@ -2439,22 +3034,44 @@ button.ghost.is-danger {
 /* Material Symbols */
 .material-symbols-outlined {
   font-variation-settings:
-  'FILL' 0,
-  'wght' 400,
-  'GRAD' 0,
-  'opsz' 24;
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
 }
 
 /* Responsive */
+@media (max-width: 1024px) {
+
+  /* Adjust week view sidebar ratio for medium screens */
+  .view-mode-week .timeline-sidebar {
+    flex-basis: 55%;
+    /* 中等屏幕周视图占比55% */
+    min-width: 500px;
+    /* 中等屏幕最小宽度 */
+  }
+}
+
 @media (max-width: 768px) {
   .timeline-sidebar {
-    width: 280px;
+    flex-basis: 40%;
+    /* 平板设备默认占比40% */
+    min-width: 280px;
+    /* 平板设备最小宽度 */
   }
-  
+
+  /* Adjust week view sidebar for tablet */
+  .view-mode-week .timeline-sidebar {
+    flex-basis: 70%;
+    /* 平板设备周视图占比70% */
+    min-width: 400px;
+    /* 平板设备周视图最小宽度 */
+  }
+
   .dashboard-header {
     padding: 0 16px;
   }
-  
+
   .dashboard-search {
     display: none;
   }
@@ -2464,10 +3081,27 @@ button.ghost.is-danger {
   .dashboard-main {
     flex-direction: column;
   }
-  
-  .timeline-sidebar {
+
+  .timeline-sidebar,
+  .view-mode-week .timeline-sidebar {
     width: 100%;
     height: 300px;
+    flex-basis: auto;
+    flex-grow: 1;
+    flex-shrink: 1;
+  }
+
+  /* Adjust week view for mobile */
+  .view-mode-week .timeline-sidebar {
+    height: 400px;
+  }
+
+  .timeline-week-day-name {
+    font-size: 11px;
+  }
+
+  .timeline-week-day-date {
+    font-size: 14px;
   }
 }
 
@@ -2895,4 +3529,210 @@ button.ghost.is-danger {
 
 .schedule-editor-save-btn:hover {
   background: #2563eb;
+}
+
+/* ========================================
+   Weekly View Task Carousel Styles
+   ======================================== */
+
+/* Status Carousel Container */
+.status-carousel-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  background: #f9fafb;
+}
+
+/* Individual Status Carousel */
+.status-carousel {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.status-carousel:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Drag-over state for carousel */
+.status-carousel.dragging-over {
+  background: #f0f9ff;
+  border-color: #3b82f6;
+}
+
+/* Carousel Header */
+.status-carousel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.status-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-indicator.todo {
+  background: #6b7280;
+}
+
+.status-indicator.doing {
+  background: #3b82f6;
+}
+
+.status-indicator.verify {
+  background: #f59e0b;
+}
+
+.status-indicator.done {
+  background: #10b981;
+}
+
+.status-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.status-count {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+/* Carousel Body */
+.carousel-body {
+  position: relative;
+}
+
+.carousel-card-container {
+  position: relative;
+  min-height: 80px;
+  max-height: 200px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+  overflow: hidden;
+  width: 100%;
+}
+
+.carousel-card-container .empty-message {
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Ensure task cards don't overflow */
+.carousel-card-container>* {
+  max-width: 100%;
+}
+
+
+
+/* Carousel Controls */
+.carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.carousel-nav-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.carousel-nav-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.carousel-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.carousel-nav-btn svg {
+  color: #6b7280;
+}
+
+.carousel-nav-btn:hover:not(:disabled) svg {
+  color: #374151;
+}
+
+/* Carousel Pagination */
+.carousel-pagination {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+}
+
+.carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.carousel-dot:hover {
+  background: #9ca3af;
+}
+
+.carousel-dot.active {
+  background: #374151;
+  width: 20px;
+  border-radius: 3px;
+}
+
+/* Responsive adjustments for carousel */
+@media (max-width: 768px) {
+  .status-carousel-container {
+    gap: 16px;
+    padding: 12px;
+  }
+
+  .status-carousel {
+    padding: 12px;
+  }
+
+  .carousel-card-container {
+    min-height: 150px;
+  }
 }

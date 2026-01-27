@@ -1,0 +1,9 @@
+{
+    "name": "get_public_ip",
+    "description": "Get the current public IP address of the user.",
+    "type": "http",
+    "endpoint": "https://api.ipify.org?format=json",
+    "method": "GET",
+    "headers": {},
+    "body_schema": {}
+}

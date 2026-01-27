@@ -24,10 +24,47 @@ pub struct PluginsSettings {
     pub disabled: BTreeMap<String, PluginDisabledInfo>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AiSettings {
+    #[serde(default = "default_ai_provider")]
+    pub provider: String, // "gemini", "openai", "ollama"
+    #[serde(default = "default_ai_base_url")]
+    pub base_url: String, // e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_ai_model")]
+    pub model_name: String, // e.g. "gpt-4o", "deepseek-chat", "llama3"
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            provider: default_ai_provider(),
+            base_url: default_ai_base_url(),
+            api_key: String::new(),
+            model_name: default_ai_model(),
+        }
+    }
+}
+
+fn default_ai_provider() -> String {
+    "gemini".to_string()
+}
+
+fn default_ai_base_url() -> String {
+    "http://localhost:11434/v1".to_string() // Default to local Ollama
+}
+
+fn default_ai_model() -> String {
+    "llama3".to_string()
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Settings {
     #[serde(default)]
     pub plugins: PluginsSettings,
+    #[serde(default)]
+    pub ai: AiSettings,
 }
 
 fn now_unix_string() -> String {
@@ -95,3 +132,13 @@ pub fn set_plugin_enabled(
     Ok(())
 }
 
+pub fn get_ai_settings(vault_root: &Path) -> Result<AiSettings, ApiError> {
+    let settings = load_settings(vault_root)?;
+    Ok(settings.ai)
+}
+
+pub fn save_ai_settings(vault_root: &Path, ai_settings: AiSettings) -> Result<(), ApiError> {
+    let mut settings = load_settings(vault_root)?;
+    settings.ai = ai_settings;
+    save_settings(vault_root, &settings)
+}

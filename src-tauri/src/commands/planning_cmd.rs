@@ -1,9 +1,13 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
-use crate::domain::planning::{CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput, Task, TodayDTO, UpdateTaskInput};
+use crate::domain::planning::{
+    CreateTaskInput, OpenDailyInput, OpenDailyResponse, OpenTaskNoteResponse, ReorderTaskInput,
+    Task, TodayDTO, UpdateTaskInput,
+};
 use crate::ipc::{ApiError, ApiResponse};
+use crate::repo::settings_repo::{self, AiSettings};
 use crate::services::planning_service::PlanningService;
-use crate::state::VaultState;
+use crate::state::{AppState, VaultState};
 
 // Get all data needed for today's home page
 #[tauri::command]
@@ -23,10 +27,10 @@ pub async fn planning_list_today(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     let data = service.get_today_data(&today)?;
-    
+
     Ok(ApiResponse::ok(data))
 }
 
@@ -48,10 +52,10 @@ pub async fn planning_create_task(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     let task = service.create_task(input)?;
-    
+
     Ok(ApiResponse::ok(task))
 }
 
@@ -73,10 +77,10 @@ pub async fn planning_update_task(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.update_task(input)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -98,10 +102,10 @@ pub async fn planning_mark_done(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.mark_task_done(&task_id)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -123,10 +127,10 @@ pub async fn planning_reopen_task(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.reopen_task(&task_id)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -148,10 +152,10 @@ pub async fn planning_start_task(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.start_task(&task_id)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -173,10 +177,10 @@ pub async fn planning_stop_task(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.stop_task(&task_id)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -198,10 +202,10 @@ pub async fn planning_open_daily(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     let data = service.open_daily(input)?;
-    
+
     Ok(ApiResponse::ok(data))
 }
 
@@ -223,10 +227,10 @@ pub async fn planning_open_task_note(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     let data = service.open_task_note(&task_id)?;
-    
+
     Ok(ApiResponse::ok(data))
 }
 
@@ -248,10 +252,10 @@ pub async fn planning_reorder_tasks(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.reorder_tasks(tasks)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -274,10 +278,10 @@ pub async fn planning_get_ui_state(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     let ui_state = service.get_ui_state(&vault_id)?;
-    
+
     Ok(ApiResponse::ok(ui_state))
 }
 
@@ -301,10 +305,10 @@ pub async fn planning_set_ui_state(
             });
         }
     };
-    
+
     let service = PlanningService::new(&app_handle, vault_path)?;
     service.set_ui_state(&vault_id, &partial_state_json)?;
-    
+
     Ok(ApiResponse::ok(()))
 }
 
@@ -326,9 +330,81 @@ pub async fn planning_delete_task(
             });
         }
     };
-    
+
     let mut service = PlanningService::new(&app_handle, vault_path)?;
     service.delete_task(&task_id)?;
-    
+
+    Ok(ApiResponse::ok(()))
+}
+
+// AI Smart Capture
+#[tauri::command]
+pub async fn planning_ai_smart_capture(
+    text: String,
+    vault_state: State<'_, VaultState>,
+    app_state: State<'_, AppState>,
+    _app_handle: AppHandle,
+) -> Result<ApiResponse<Vec<CreateTaskInput>>, ApiError> {
+    let vault_path = {
+        let vault_root = vault_state.root.lock()?;
+        match vault_root.as_ref() {
+            Some(path) => path.clone(),
+            None => {
+                return Err(ApiError {
+                    code: "VaultNotSelected".to_string(),
+                    message: "Vault not selected".to_string(),
+                    details: None,
+                });
+            }
+        }
+    };
+
+    // Call static method directly
+    let tasks =
+        PlanningService::ai_smart_capture(&vault_path, &app_state.http_client, &text).await?;
+
+    Ok(ApiResponse::ok(tasks))
+}
+
+// Get AI Settings
+#[tauri::command]
+pub async fn planning_get_ai_settings(
+    vault_state: State<'_, VaultState>,
+) -> Result<ApiResponse<AiSettings>, ApiError> {
+    let vault_root = vault_state.root.lock()?;
+    let vault_path = match vault_root.as_ref() {
+        Some(path) => path,
+        None => {
+            return Err(ApiError {
+                code: "VaultNotSelected".to_string(),
+                message: "Vault not selected".to_string(),
+                details: None,
+            });
+        }
+    };
+
+    let settings = settings_repo::get_ai_settings(vault_path)?;
+    Ok(ApiResponse::ok(settings))
+}
+
+// Save AI Settings
+#[tauri::command]
+pub async fn planning_save_ai_settings(
+    settings: AiSettings,
+    vault_state: State<'_, VaultState>,
+) -> Result<ApiResponse<()>, ApiError> {
+    let vault_root = vault_state.root.lock()?;
+    let vault_path = match vault_root.as_ref() {
+        Some(path) => path,
+        None => {
+            return Err(ApiError {
+                code: "VaultNotSelected".to_string(),
+                message: "Vault not selected".to_string(),
+                details: None,
+            });
+        }
+    };
+
+    settings_repo::save_ai_settings(vault_path, settings)?;
     Ok(ApiResponse::ok(()))
 }

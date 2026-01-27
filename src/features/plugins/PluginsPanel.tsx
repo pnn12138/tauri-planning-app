@@ -21,18 +21,18 @@ export default function PluginsPanel({ onClose }: PluginsPanelProps) {
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="plugins-panel" onMouseDown={(e) => e.stopPropagation()}>
         <div className="plugins-panel-header">
-          <div className="plugins-panel-title">Plugins</div>
+          <div className="plugins-panel-title">插件</div>
           <button type="button" className="plugins-panel-close" onClick={onClose}>
             x
           </button>
         </div>
 
-        {loading && <div className="plugins-panel-status">Loading...</div>}
+        {loading && <div className="plugins-panel-status">加载中...</div>}
         {error && <div className="plugins-panel-error">{error.code}: {error.message}</div>}
 
         {!loading && !error && !hasPlugins && (
           <div className="plugins-panel-empty">
-            No plugins found. Put plugins under <code>.yourapp/plugins/&lt;id&gt;/</code> in your vault.
+            未找到插件。请将插件放置在库的 <code>.yourapp/plugins/&lt;id&gt;/</code> 目录下。
           </div>
         )}
 
@@ -58,7 +58,7 @@ export default function PluginsPanel({ onClose }: PluginsPanelProps) {
                         }}
                       />
                       <span className="plugin-toggle-label">
-                        {plugin.enabled ? "Enabled" : "Disabled"}
+                        {plugin.enabled ? "已启用" : "已禁用"}
                       </span>
                     </label>
                   </div>
@@ -66,7 +66,7 @@ export default function PluginsPanel({ onClose }: PluginsPanelProps) {
                   {manifest?.description && <div className="plugin-desc">{manifest.description}</div>}
                   {permissions.length > 0 && (
                     <div className="plugin-perms">
-                      <span className="plugin-perms-label">permissions:</span>{" "}
+                      <span className="plugin-perms-label">权限:</span>{" "}
                       {permissions.join(", ")}
                     </div>
                   )}

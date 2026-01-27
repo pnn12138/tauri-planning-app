@@ -49,13 +49,17 @@ pub struct PluginsListResponse {
 }
 
 #[tauri::command]
-pub async fn plugins_list(state: State<'_, VaultState>) -> Result<ApiResponse<PluginsListResponse>, ApiError> {
+pub async fn plugins_list(
+    state: State<'_, VaultState>,
+) -> Result<ApiResponse<PluginsListResponse>, ApiError> {
     let vault_root = match current_vault_root(&state) {
         Ok(path) => path,
         Err(err) => return Ok(ApiResponse::err(&err.code, &err.message, err.details)),
     };
 
-    let result = tauri::async_runtime::spawn_blocking(move || plugins_service::list_plugins(&vault_root)).await;
+    let result =
+        tauri::async_runtime::spawn_blocking(move || plugins_service::list_plugins(&vault_root))
+            .await;
     match result {
         Ok(Ok(response)) => Ok(ApiResponse::ok(PluginsListResponse {
             plugins: response
@@ -94,8 +98,10 @@ pub async fn plugins_read_manifest(
         Err(err) => return Ok(ApiResponse::err(&err.code, &err.message, err.details)),
     };
     let plugin_id = input.plugin_id;
-    let result =
-        tauri::async_runtime::spawn_blocking(move || plugins_service::read_manifest(&vault_root, &plugin_id)).await;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        plugins_service::read_manifest(&vault_root, &plugin_id)
+    })
+    .await;
 
     match result {
         Ok(Ok(manifest)) => Ok(ApiResponse::ok(manifest)),
@@ -131,8 +137,10 @@ pub async fn plugins_read_entry(
     };
     let plugin_id = input.plugin_id;
     let entry = input.entry;
-    let result = tauri::async_runtime::spawn_blocking(move || plugins_service::read_entry(&vault_root, &plugin_id, &entry))
-        .await;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        plugins_service::read_entry(&vault_root, &plugin_id, &entry)
+    })
+    .await;
 
     match result {
         Ok(Ok(content)) => Ok(ApiResponse::ok(PluginsReadEntryResponse { content })),
@@ -209,8 +217,10 @@ pub async fn vault_read_text(
         Err(err) => return Ok(ApiResponse::err(&err.code, &err.message, err.details)),
     };
     let rel_path = PathBuf::from(input.path);
-    let result = tauri::async_runtime::spawn_blocking(move || plugins_service::vault_read_text(&vault_root, &rel_path))
-        .await;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        plugins_service::vault_read_text(&vault_root, &rel_path)
+    })
+    .await;
     match result {
         Ok(Ok(response)) => Ok(ApiResponse::ok(VaultReadTextResponse {
             path: response.path,
@@ -249,9 +259,10 @@ pub async fn vault_write_text(
     };
     let rel_path = PathBuf::from(input.path);
     let content = input.content;
-    let result =
-        tauri::async_runtime::spawn_blocking(move || plugins_service::vault_write_text(&vault_root, &rel_path, &content))
-            .await;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        plugins_service::vault_write_text(&vault_root, &rel_path, &content)
+    })
+    .await;
     match result {
         Ok(Ok(response)) => Ok(ApiResponse::ok(VaultWriteTextResponse {
             path: response.path,
@@ -265,4 +276,56 @@ pub async fn vault_write_text(
         )),
     }
 }
+#[derive(Deserialize)]
+pub struct VaultListFilesInput {
+    pub path: String, // Relative path, e.g., ".skills"
+}
 
+#[derive(Serialize)]
+pub struct VaultListFilesResponse {
+    pub files: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn vault_list_files(
+    state: State<'_, VaultState>,
+    input: VaultListFilesInput,
+) -> Result<ApiResponse<VaultListFilesResponse>, ApiError> {
+    let vault_root = match current_vault_root(&state) {
+        Ok(path) => path,
+        Err(err) => return Ok(ApiResponse::err(&err.code, &err.message, err.details)),
+    };
+
+    let rel_path = PathBuf::from(input.path);
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        // Resolve absolute path
+        let abs_dir = crate::security::path_policy::resolve_existing_dir(&vault_root, &rel_path)?;
+
+        // List files
+        let mut files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(abs_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        if let Ok(name) = entry.file_name().into_string() {
+                            files.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        Ok::<VaultListFilesResponse, ApiError>(VaultListFilesResponse { files })
+    })
+    .await;
+
+    match result {
+        Ok(Ok(response)) => Ok(ApiResponse::ok(response)),
+        Ok(Err(err)) => Ok(ApiResponse::err(&err.code, &err.message, err.details)),
+        Err(err) => Ok(ApiResponse::err(
+            "Unknown",
+            "Vault list files task failed",
+            Some(serde_json::json!({ "error": err.to_string() })),
+        )),
+    }
+}

@@ -38,10 +38,10 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
   const [menu, setMenu] = useState<
     | null
     | ({ x: number; y: number } & (
-        | { type: "blank"; parentPath: string }
-        | { type: "file"; path: string; name: string }
-        | { type: "dir"; path: string; name: string }
-      ))
+      | { type: "blank"; parentPath: string }
+      | { type: "file"; path: string; name: string }
+      | { type: "dir"; path: string; name: string }
+    ))
   >(null);
 
   useEffect(() => {
@@ -235,8 +235,8 @@ export default function ExplorerPanel(props: ExplorerPanelProps) {
   }
 
   const placeholder = props.vaultRoot
-    ? "Scanning vault..."
-    : "Select a vault to browse files.";
+    ? "正在扫描库..."
+    : "选择一个库以浏览文件。";
 
   return (
     <div

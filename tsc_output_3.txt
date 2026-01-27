@@ -1,0 +1,11 @@
+src/Home.tsx(1718,9): error TS17014: JSX fragment has no corresponding closing tag.
+src/Home.tsx(2815,19): error TS1003: Identifier expected.
+src/Home.tsx(2816,14): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(2922,17): error TS17015: Expected corresponding closing tag for JSX fragment.
+src/Home.tsx(2922,20): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/Home.tsx(2925,7): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3015,26): error TS17008: JSX element 'button' has no corresponding closing tag.
+src/Home.tsx(3437,11): error TS1003: Identifier expected.
+src/Home.tsx(3438,8): error TS1005: '}' expected.
+src/Home.tsx(3439,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/Home.tsx(3442,1): error TS1005: '</' expected.

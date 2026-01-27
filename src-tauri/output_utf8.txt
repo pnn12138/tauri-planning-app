@@ -1,0 +1,50 @@
+﻿cargo : warning: unused import: `serde
+_json::Value`
+所在位置 行:1 字符: 1
++ cargo check 2>&1 | Out-File -Encodin
+g UTF8 output_utf8.txt
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpec 
+   ified: (warning: unused...de_json  
+  ::Value`:String) [], RemoteExcept   
+ ion
+    + FullyQualifiedErrorId : NativeC 
+   ommandError
+ 
+ --> src\services\ai_service.rs:5:5
+  |
+5 | use serde_json::Value;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on
+ by default
+
+warning: unused import: `reqwest::Clie
+nt`
+ --> src\state.rs:1:5
+  |
+1 | use reqwest::Client;
+  |     ^^^^^^^^^^^^^^^
+
+warning: method `vault_root` is never 
+used
+  --> src\repo\planning_md_repo.rs:50:
+12
+   |
+37 | impl PlanningMdRepo {
+   | ------------------- method in thi
+s implementation
+...
+50 |     pub fn vault_root(&self) -> &
+Path {
+   |            ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by 
+default
+
+warning: `tauri-planning-app` (lib) ge
+nerated 3 warnings (run `cargo fix --l
+ib -p tauri-planning-app` to apply 2 s
+uggestions)
+    Finished `dev` profile [unoptimize
+d + debuginfo] target(s) in 0.53s

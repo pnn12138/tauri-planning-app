@@ -4,7 +4,7 @@ import { TaskStatus, TaskPriority } from '../../shared/types/planning';
 export type TaskCreateDraftStep1 = {
   title: string;
   description?: string;
-  status: 'backlog' | 'todo' | 'done';
+  status: TaskStatus;
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   tags?: string[];
   dueDateTime?: string; // ISO datetime-local format YYYY-MM-DDTHH:mm
@@ -46,7 +46,7 @@ export const toCreateTaskInputStep1 = (draft: TaskCreateDraftStep1): CreateTaskI
   const normalizedTags = draft.tags
     ? draft.tags.filter(tag => tag.trim() !== '').filter((value, index, self) => self.indexOf(value) === index)
     : undefined;
-  
+
   // 处理截止日期时间
   let dueDate: string | undefined;
   if (draft.dueDateTime) {
@@ -54,7 +54,7 @@ export const toCreateTaskInputStep1 = (draft: TaskCreateDraftStep1): CreateTaskI
     const date = new Date(draft.dueDateTime);
     dueDate = date.toISOString();
   }
-  
+
   const result: CreateTaskInput = {
     title: draft.title.trim(),
     description: draft.description?.trim() || undefined,
@@ -65,7 +65,7 @@ export const toCreateTaskInputStep1 = (draft: TaskCreateDraftStep1): CreateTaskI
     board_id: "default",
     estimate_min: draft.estimateMin,
   };
-  
+
   return result;
 };
 

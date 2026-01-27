@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import type { MarkdownTab, Tab, WebTab } from "./tab.model";
+import type { MarkdownTab, Tab, WebTab, TaskTab } from "./tab.model";
 
 export const HOME_TAB_ID = "home";
 
@@ -165,3 +165,33 @@ export function findWebTabByLabel(label: string) {
     ) ?? null
   );
 }
+
+export function findTaskTabByTaskId(taskId: string) {
+  return (
+    tabState.tabs.find(
+      (tab): tab is TaskTab => tab.type === "task" && tab.taskId === taskId
+    ) ?? null
+  );
+}
+
+export function openTaskTab(taskId: string, taskTitle?: string, options?: { activate?: boolean }) {
+  const existing = findTaskTabByTaskId(taskId);
+  if (existing) {
+    if (options?.activate !== false) {
+      setActiveTabId(existing.id);
+    }
+    return existing.id;
+  }
+
+  const id = `task-${Date.now()}-${tabIdCounter++}`;
+  const tab: TaskTab = {
+    id,
+    type: "task",
+    title: taskTitle || `Task ${taskId.slice(0, 8)}`,
+    taskId,
+  };
+  addTab(tab, { activate: options?.activate !== false });
+  return id;
+}
+
+
